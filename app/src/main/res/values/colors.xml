@@ -1,0 +1,11 @@
+<resources>
+    <!-- The ACM QU palette: four greys and one hue. -->
+    <color name="paper">#FBFAFB</color>
+    <color name="ink">#010000</color>
+    <color name="gray">#373637</color>
+    <color name="light_gray">#706D70</color>
+    <color name="acm_teal">#3AE4D1</color>
+    <color name="acm_teal_mid">#2FBBAB</color>
+    <color name="acm_teal_dark">#42A7AE</color>
+    <color name="ic_launcher_background">#010000</color>
+</resources>

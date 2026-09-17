@@ -1,0 +1,17 @@
+# Android / Gradle
+*.iml
+.gradle/
+local.properties
+.idea/
+build/
+captures/
+.externalNativeBuild/
+.cxx/
+*.apk
+*.aab
+
+# Vosk wake-word model: 40 MB, fetched into place by the downloadVoskModel Gradle task
+app/src/main/assets/model-en-us/
+
+# macOS
+.DS_Store

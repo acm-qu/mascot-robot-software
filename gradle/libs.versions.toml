@@ -1,0 +1,32 @@
+[versions]
+# Pinned for Android Studio 2025.2 and the installed SDK. Newer AndroidX releases
+# want compileSdk 37 / AGP 9, which that Studio does not support.
+agp = "8.13.2"
+kotlin = "2.2.21"
+coreKtx = "1.17.0"
+appcompat = "1.7.1"
+material = "1.13.0"
+activity = "1.11.0"
+lifecycle = "2.9.4"
+coroutines = "1.10.2"
+okhttp = "4.12.0"
+vosk = "0.3.75"
+jna = "5.18.1"
+junit = "4.13.2"
+json = "20250107"
+
+[libraries]
+androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
+androidx-appcompat = { group = "androidx.appcompat", name = "appcompat", version.ref = "appcompat" }
+androidx-activity-ktx = { group = "androidx.activity", name = "activity-ktx", version.ref = "activity" }
+androidx-lifecycle-runtime-ktx = { group = "androidx.lifecycle", name = "lifecycle-runtime-ktx", version.ref = "lifecycle" }
+google-material = { group = "com.google.android.material", name = "material", version.ref = "material" }
+kotlinx-coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-android", version.ref = "coroutines" }
+okhttp = { group = "com.squareup.okhttp3", name = "okhttp", version.ref = "okhttp" }
+vosk-android = { group = "com.alphacephei", name = "vosk-android", version.ref = "vosk" }
+junit = { group = "junit", name = "junit", version.ref = "junit" }
+json = { group = "org.json", name = "json", version.ref = "json" }
+
+[plugins]
+android-application = { id = "com.android.application", version.ref = "agp" }
+kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }

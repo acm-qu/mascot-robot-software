@@ -1,0 +1,20 @@
+<resources>
+    <string name="app_name">ACMO</string>
+    <string name="face_description">ACMO\'s face</string>
+
+    <string name="settings_title">ACMO settings</string>
+    <string name="settings_theme">Theme</string>
+    <string name="settings_light">Light</string>
+    <string name="settings_dark">Dark</string>
+    <string name="settings_volume">Volume</string>
+    <string name="settings_brightness">Brightness</string>
+    <string name="settings_colour">Primary colour</string>
+    <string name="settings_close">Close</string>
+    <string name="settings_hint">say \"hey ACMO\", pause, then ask\ntap the face to preview expressions\nfive taps top-left opens this panel</string>
+
+    <!-- Spoken when something goes wrong. The face is the only screen, so the voice is the error channel. -->
+    <string name="speech_apology">Oops, my brain glitched. Ask me again in a moment.</string>
+    <string name="speech_no_mic">I need the microphone to hear you. Allow it in settings and open me again.</string>
+    <string name="speech_no_key">I have no Gemini API key. Put one in local dot properties and rebuild me.</string>
+    <string name="speech_no_ears">My ears did not load. Check the log and restart me.</string>
+</resources>

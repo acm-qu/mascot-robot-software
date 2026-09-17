@@ -1,0 +1,4 @@
+<resources>
+    <dimen name="settings_card_width">520dp</dimen>
+    <dimen name="swatch_size">44dp</dimen>
+</resources>

@@ -1,0 +1,13 @@
+<resources>
+    <!--
+      Dark base so the system bars, when they do appear, match the black face.
+      The light/dark switch in settings is the face's own and is applied in code.
+    -->
+    <style name="Theme.Acmo" parent="Theme.Material3.Dark.NoActionBar">
+        <item name="colorPrimary">@color/acm_teal</item>
+        <item name="colorOnPrimary">@color/ink</item>
+        <item name="android:windowBackground">@color/ink</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+    </style>
+</resources>
