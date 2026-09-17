@@ -26,13 +26,18 @@ class Speaker(context: Context) {
     private val pending = ConcurrentHashMap<String, CompletableDeferred<Unit>>()
     private var currentTag: String? = null
 
-    private val tts = TextToSpeech(context.applicationContext) { status ->
-        ready.complete(status == TextToSpeech.SUCCESS)
-    }
+    private lateinit var tts: TextToSpeech
 
     init {
-        tts.setPitch(1.1f)
-        tts.setSpeechRate(1.0f)
+        tts = TextToSpeech(context.applicationContext) { status ->
+            val ok = status == TextToSpeech.SUCCESS
+            if (ok) {
+                // Only takes effect once the engine is connected -- earlier calls are silently ignored.
+                tts.setPitch(1.1f)
+                tts.setSpeechRate(1.0f)
+            }
+            ready.complete(ok)
+        }
         tts.setOnUtteranceProgressListener(@Suppress("OVERRIDE_DEPRECATION") object : UtteranceProgressListener() {
             override fun onStart(utteranceId: String?) {
                 main.post { onStart?.invoke() }
@@ -55,7 +60,8 @@ class Speaker(context: Context) {
 
             override fun onStop(utteranceId: String?, interrupted: Boolean) {
                 main.post { onFinish?.invoke() }
-                utteranceId?.let { pending.remove(it) }?.cancel()
+                // An ordinary failure, not a cancellation: the caller's error path must still run.
+                utteranceId?.let { pending.remove(it) }?.completeExceptionally(IllegalStateException("speech was stopped"))
             }
         })
     }
