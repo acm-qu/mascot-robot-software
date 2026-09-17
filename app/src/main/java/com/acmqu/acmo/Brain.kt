@@ -34,7 +34,13 @@ class Brain(
     enum class State { BOOTING, IDLE, LISTENING, THINKING, SPEAKING }
 
     var state = State.BOOTING
-        private set
+        private set(value) {
+            field = value
+            onStateChanged?.invoke(value)
+        }
+
+    /** Fires on the main thread whenever [state] changes; the dev bar's mic button watches it. */
+    var onStateChanged: ((State) -> Unit)? = null
 
     private var mic: MicPipeline? = null
     private var job: Job? = null
@@ -69,6 +75,36 @@ class Brain(
             goIdle()
             mic?.setMode(MicPipeline.Mode.PAUSED)
         }
+    }
+
+    /**
+     * Dev mode: start listening for a prompt right now, no wake word needed --
+     * or, if already listening, send what has been said so far.
+     */
+    fun toggleListening() {
+        when (state) {
+            State.IDLE -> {
+                previewJob?.cancel()
+                state = State.LISTENING
+                face.setExpression(Expression.EXCITED)
+                mic?.setMode(MicPipeline.Mode.CAPTURE)
+            }
+            State.LISTENING -> mic?.finishCapture()
+            else -> {}
+        }
+    }
+
+    /** Dev mode: a typed prompt, straight to the model with no transcription. */
+    fun submitText(text: String) {
+        val prompt = text.trim()
+        if (prompt.isEmpty()) return
+        if (state != State.IDLE && state != State.LISTENING) return
+        job?.cancel()
+        previewJob?.cancel()
+        mic?.setMode(MicPipeline.Mode.PAUSED)
+        state = State.THINKING
+        face.setExpression(Expression.EXCITED)
+        job = scope.launch { converse { prompt } }
     }
 
     /** A tap on the idle face shows the next expression for a few seconds -- a preview, nothing more. */
@@ -109,7 +145,7 @@ class Brain(
             return
         }
         state = State.THINKING
-        job = scope.launch { converse(wav) }
+        job = scope.launch { converse { gemini.transcribe(wav) } }
     }
 
     override fun onMicError(message: String) {
@@ -119,9 +155,10 @@ class Brain(
 
     // ---- the conversation ----
 
-    private suspend fun converse(wav: ByteArray) {
+    /** [hear] yields the prompt text: a transcription of the recording, or what was typed. */
+    private suspend fun converse(hear: suspend () -> String) {
         try {
-            val transcript = gemini.transcribe(wav)
+            val transcript = hear()
             Log.i(TAG, "heard: \"$transcript\"")
             if (transcript.isBlank()) {
                 shrug()

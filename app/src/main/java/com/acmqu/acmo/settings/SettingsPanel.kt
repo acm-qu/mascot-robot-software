@@ -32,6 +32,8 @@ class SettingsPanel(
     init {
         b.btnLight.setOnClickListener { settings.dark = false; changed() }
         b.btnDark.setOnClickListener { settings.dark = true; changed() }
+        b.btnDevOff.setOnClickListener { settings.devMode = false; changed() }
+        b.btnDevOn.setOnClickListener { settings.devMode = true; changed() }
 
         b.sliderVolume.addOnChangeListener { _, value, fromUser ->
             if (fromUser) setVolume(value / 100f)
@@ -72,13 +74,15 @@ class SettingsPanel(
         }
         b.settingsShadow.setBackgroundColor(theme.accent)
 
-        for (label in listOf(b.titleText, b.labelTheme, b.labelVolume, b.labelBrightness, b.labelColour)) {
+        for (label in listOf(b.titleText, b.labelTheme, b.labelDev, b.labelVolume, b.labelBrightness, b.labelColour)) {
             label.setTextColor(muted)
         }
         b.hintText.setTextColor(muted)
 
         stylePill(b.btnLight, selected = !settings.dark, theme)
         stylePill(b.btnDark, selected = settings.dark, theme)
+        stylePill(b.btnDevOff, selected = !settings.devMode, theme)
+        stylePill(b.btnDevOn, selected = settings.devMode, theme)
         stylePill(b.btnClose, selected = false, theme)
 
         b.sliderVolume.value = (currentVolume() * 100f).roundToInt().toFloat().coerceIn(0f, 100f)
@@ -97,7 +101,7 @@ class SettingsPanel(
     }
 
     /** Filled teal with dark text when selected; a ring in the ink colour otherwise. */
-    private fun stylePill(button: MaterialButton, selected: Boolean, theme: FaceTheme) {
+    fun stylePill(button: MaterialButton, selected: Boolean, theme: FaceTheme) {
         if (selected) {
             button.backgroundTintList = ColorStateList.valueOf(theme.accent)
             button.strokeColor = ColorStateList.valueOf(theme.accent)

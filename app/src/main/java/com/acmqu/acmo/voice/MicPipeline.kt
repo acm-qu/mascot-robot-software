@@ -13,6 +13,7 @@ import java.io.ByteArrayOutputStream
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.util.ArrayDeque
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.math.sqrt
 
@@ -45,6 +46,7 @@ class MicPipeline(private val model: Model, private val listener: Listener) {
 
     private val main = Handler(Looper.getMainLooper())
     private val mode = AtomicReference(Mode.PAUSED)
+    private val finishRequested = AtomicBoolean(false)
     @Volatile private var running = false
     private var thread: Thread? = null
 
@@ -72,6 +74,11 @@ class MicPipeline(private val model: Model, private val listener: Listener) {
 
     fun setMode(m: Mode) {
         mode.set(m)
+    }
+
+    /** Ends the capture now with whatever was said -- the dev bar's mic button, tapped again. */
+    fun finishCapture() {
+        finishRequested.set(true)
     }
 
     private fun loop() {
@@ -165,6 +172,7 @@ class MicPipeline(private val model: Model, private val listener: Listener) {
     // ---- CAPTURE ----
 
     private fun resetCapture() {
+        finishRequested.set(false)
         prompt.reset()
         preRoll.clear()
         capturedMs = 0
@@ -178,6 +186,12 @@ class MicPipeline(private val model: Model, private val listener: Listener) {
         val threshold = (noiseFloor * THRESHOLD_GAIN).coerceIn(MIN_THRESHOLD, MAX_THRESHOLD)
         capturedMs += CHUNK_MS
         val bytes = toBytes(chunk, n)
+
+        if (finishRequested.getAndSet(false)) {
+            if (speechStarted) prompt.write(bytes)
+            finish(heard = speechStarted)
+            return
+        }
 
         if (!speechStarted) {
             loudRun = if (r > threshold) loudRun + 1 else 0

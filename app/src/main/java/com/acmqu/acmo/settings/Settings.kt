@@ -14,6 +14,11 @@ class Settings(context: Context) {
         get() = prefs.getBoolean("dark", false)
         set(v) = prefs.edit().putBoolean("dark", v).apply()
 
+    /** Shows the text box and mic button along the bottom of the face. */
+    var devMode: Boolean
+        get() = prefs.getBoolean("dev", false)
+        set(v) = prefs.edit().putBoolean("dev", v).apply()
+
     /** Index into [SWATCHES]. */
     var swatch: Int
         get() = prefs.getInt("swatch", 0).coerceIn(0, SWATCHES.size - 1)

@@ -9,8 +9,14 @@
     <string name="settings_volume">Volume</string>
     <string name="settings_brightness">Brightness</string>
     <string name="settings_colour">Primary colour</string>
+    <string name="settings_dev">Dev mode</string>
+    <string name="settings_off">Off</string>
+    <string name="settings_on">On</string>
     <string name="settings_close">Close</string>
-    <string name="settings_hint">say \"hey ACMO\", pause, then ask\ntap the face to preview expressions\nfive taps top-left opens this panel</string>
+    <string name="settings_hint">say \"hey ACMO\", pause, then ask\ntap the face to preview expressions\nfive taps top-left opens this panel\ndev mode: type a prompt, or tap the mic to skip the wake word</string>
+
+    <string name="dev_hint">type a prompt, press send</string>
+    <string name="dev_mic">Listen now</string>
 
     <!-- Spoken when something goes wrong. The face is the only screen, so the voice is the error channel. -->
     <string name="speech_apology">Oops, my brain glitched. Ask me again in a moment.</string>

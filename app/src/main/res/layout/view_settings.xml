@@ -50,6 +50,30 @@
         </LinearLayout>
 
         <TextView
+            android:id="@+id/labelDev"
+            style="@style/Eyebrow"
+            android:layout_marginTop="22dp"
+            android:text="@string/settings_dev" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:orientation="horizontal">
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnDevOff"
+                style="@style/Pill"
+                android:text="@string/settings_off" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnDevOn"
+                style="@style/Pill"
+                android:layout_marginStart="10dp"
+                android:text="@string/settings_on" />
+        </LinearLayout>
+
+        <TextView
             android:id="@+id/labelVolume"
             style="@style/Eyebrow"
             android:layout_marginTop="22dp"

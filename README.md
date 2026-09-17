@@ -16,8 +16,8 @@ eight expressions.
 ```
 
 Nothing but the face is ever on screen. Five taps in the top-left corner open a
-settings card (light/dark, volume, brightness, primary colour); a tap anywhere
-else previews the next expression.
+settings card (light/dark, dev mode, volume, brightness, primary colour); a tap
+anywhere else previews the next expression.
 
 ## What's here
 
@@ -103,6 +103,13 @@ software/
   which is what the voice uses. **Brightness** is this window's. **Primary
   colour** recolours the cheeks, badge and tear — the brand teal by default,
   then the department colours from the ACM QU design system.
+- **Dev mode** (in settings) puts a text box and a mic button along the bottom
+  of the face. Type a prompt and press *Send* on the keyboard: it goes straight
+  to the model, no transcription. Tap the mic: ACMO listens right away, no wake
+  word, and stops when you stop talking — or tap the mic again to send what it
+  has so far. The button is filled while it listens and dimmed while ACMO is
+  thinking or talking. Everything else — the face, the voice, the memory — is
+  the same path the wake word takes.
 
 ## The reply format
 

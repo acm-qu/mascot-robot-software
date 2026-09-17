@@ -2,17 +2,24 @@ package com.acmqu.acmo
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.content.res.ColorStateList
+import android.graphics.drawable.GradientDrawable
 import android.os.Build
 import android.os.Bundle
 import android.util.Log
+import android.view.KeyEvent
 import android.view.MotionEvent
+import android.view.View
 import android.view.WindowManager
+import android.view.inputmethod.EditorInfo
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
+import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import androidx.core.view.updatePadding
 import androidx.lifecycle.lifecycleScope
 import com.acmqu.acmo.databinding.ActivityMainBinding
 import com.acmqu.acmo.face.Expression
@@ -37,6 +44,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var panel: SettingsPanel
 
     private val cornerTaps = ArrayDeque<Long>()
+    private var devBarBasePadding = 0
 
     private val requestMic = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         if (granted) boot() else say(R.string.speech_no_mic)
@@ -64,6 +72,7 @@ class MainActivity : AppCompatActivity() {
 
         setUpKiosk()
         setUpTouch()
+        setUpDevBar()
 
         if (BuildConfig.GEMINI_API_KEY.isBlank()) {
             Log.w(TAG, "GEMINI_API_KEY is empty -- add it to local.properties and rebuild")
@@ -105,11 +114,66 @@ class MainActivity : AppCompatActivity() {
         window.decorView.setBackgroundColor(theme.bg)
         panel.applyBrightness()
         panel.refresh()
+        styleDevBar(theme)
     }
 
     private fun showSettings(show: Boolean) {
         if (show) panel.refresh()
-        binding.settingsScrim.visibility = if (show) android.view.View.VISIBLE else android.view.View.GONE
+        binding.settingsScrim.visibility = if (show) View.VISIBLE else View.GONE
+    }
+
+    // ---- dev mode: a text box and a mic button along the bottom ----
+
+    private fun setUpDevBar() {
+        devBarBasePadding = binding.devBar.paddingBottom
+        binding.devInput.setOnEditorActionListener { _, actionId, event ->
+            val enter = event?.keyCode == KeyEvent.KEYCODE_ENTER && event.action == KeyEvent.ACTION_DOWN
+            if (actionId == EditorInfo.IME_ACTION_SEND || enter) {
+                sendTyped()
+                true
+            } else false
+        }
+        binding.devMic.setOnClickListener { brain.toggleListening() }
+        brain.onStateChanged = { styleMic(it) }
+
+        // The bar sits on the bottom edge; lift it over the keyboard and the nav bar when they show.
+        ViewCompat.setOnApplyWindowInsetsListener(binding.devBar) { v, insets ->
+            val ime = insets.getInsets(WindowInsetsCompat.Type.ime()).bottom
+            val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars()).bottom
+            v.updatePadding(bottom = devBarBasePadding + maxOf(ime, bars))
+            insets
+        }
+    }
+
+    private fun sendTyped() {
+        val text = binding.devInput.text?.toString()?.trim().orEmpty()
+        if (text.isEmpty()) return
+        binding.devInput.text?.clear()
+        WindowInsetsControllerCompat(window, binding.root).hide(WindowInsetsCompat.Type.ime())
+        brain.submitText(text)
+    }
+
+    private fun styleDevBar(theme: com.acmqu.acmo.face.FaceTheme) {
+        binding.devBar.visibility = if (settings.devMode) View.VISIBLE else View.GONE
+        binding.devInput.setTextColor(theme.ink)
+        binding.devInput.setHintTextColor(0xFF706D70.toInt())
+        binding.devInput.background = GradientDrawable().apply {
+            cornerRadius = 9999f
+            setColor(0x00000000)
+            setStroke((2 * resources.displayMetrics.density).toInt(), theme.accent)
+        }
+        styleMic(brain.state)
+    }
+
+    /** Filled while listening, a ring otherwise, dimmed while ACMO is busy. */
+    private fun styleMic(state: Brain.State) {
+        val theme = settings.theme()
+        val listening = state == Brain.State.LISTENING
+        panel.stylePill(binding.devMic, selected = listening, theme)
+        binding.devMic.iconTint = ColorStateList.valueOf(if (listening) 0xFF010000.toInt() else theme.ink)
+        val busy = state == Brain.State.THINKING || state == Brain.State.SPEAKING || state == Brain.State.BOOTING
+        binding.devMic.isEnabled = !busy
+        binding.devMic.alpha = if (busy) 0.4f else 1f
     }
 
     // ---- touch ----
