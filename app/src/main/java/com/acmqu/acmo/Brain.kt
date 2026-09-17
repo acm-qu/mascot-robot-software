@@ -82,6 +82,7 @@ class Brain(
      * or, if already listening, send what has been said so far.
      */
     fun toggleListening() {
+        if (mic == null) return   // no microphone yet (permission, model): nothing could end a capture
         when (state) {
             State.IDLE -> {
                 previewJob?.cancel()
@@ -98,7 +99,9 @@ class Brain(
     fun submitText(text: String) {
         val prompt = text.trim()
         if (prompt.isEmpty()) return
-        if (state != State.IDLE && state != State.LISTENING) return
+        // BOOTING is allowed on purpose: a typed prompt is the one way to talk to
+        // ACMO on a device with no microphone, or before the model has loaded.
+        if (state != State.IDLE && state != State.LISTENING && state != State.BOOTING) return
         job?.cancel()
         previewJob?.cancel()
         mic?.setMode(MicPipeline.Mode.PAUSED)
