@@ -139,8 +139,10 @@ line, pick one of the eight faces, and ACMO says it in an ElevenLabs voice.
 The text is spoken word for word — Gemini is not involved — and streamed:
 ElevenLabs returns raw 24 kHz PCM, with the moment each character is spoken,
 and it goes straight into the same player as Gemini's voice. Measured on the
-Redmi Pad 2 with the fast model: the first sound comes 0.4 s after Enter on a
-warm connection, and about 1.5 s for the first line after a few minutes' quiet.
+Redmi Pad 2, warm: the audio reaches the player 0.5 s after Enter with the fast
+model and 1.3 s with v3 (a `[tag]`, below); the first line after a few minutes'
+quiet takes about a second longer, and the tablet's own audio output starts
+about half a second after that.
 
 ```sh
 adb forward tcp:8765 tcp:8765           # or type the address from the settings card into the page

@@ -312,3 +312,42 @@ new dependency.
 - A `GET /tags` route so the console reads the words from the tablet instead of
   mirroring them.
 - Letting the operator force v3 for a plain line, or Flash for a tagged one.
+
+## 9. Implementation notes (2026-09-20)
+
+What the reviews and the tablet changed, so this document matches the code:
+
+- `FaceCues.feed(atByte)` and `Sink.timed(atByte)` take byte offsets only, one
+  entry per code point; nothing read the characters, and a `String` is the
+  wrong shape for them (an emoji is one entry, two UTF-16 units). Probed: the
+  alignment counts code points even for a skin-tone or a family emoji.
+- `Sink.timed` is abstract once `Brain` implements it, so a sink cannot silently
+  drop every cue. An exception from `play` or `timed` ends the line in `fail`.
+- A stream object with no `audio_base64` (or `null`) is timing only; an
+  `alignment` that is not an object, or a start time that is not a number, is a
+  bad chunk. Every object ElevenLabs sent carried `audio_base64` as a string.
+- The line opens on its first face tag when only tags and spaces precede it
+  (`Tags.opening`), so `[whispers] [sad] …` does not flip at the first sound.
+- A bare CR inside brackets is not a tag either. `AudioOut.cue` refuses a cue
+  after a cancel; the identity guard covers one already posted.
+- The player logs when a cue fires (head position, time since start) and, at
+  the end, how much played and the AudioTrack's underrun count.
+
+Verified on the Redmi Pad 2 (`b15f152c`), the same day, over `adb forward`:
+
+| Check | Result |
+| --- | --- |
+| Three-tag line | Opens on `excited`; cues `sad` at 2.08 s and `happy` at 4.28 s of audio fire with the head exactly there; 7.1 s of audio, 0 underruns; `/state` follows excited → sad → happy. |
+| Leading face tag | That face from the start, never the pill's. |
+| Voice-only tag (`[whispers]`) | v3, tone only; the face stays on the pill's. |
+| `[whispers] [sad] …` | Opens on `sad`; the re-cue at 90 ms is a no-op. |
+| Stop at 1.5 s | Idle within 0.2 s; no cue fires afterwards. |
+| Trailing tag (`Bye now [sad]`) | Fires: v3 leaves ~0.9 s of pause after the last word, and the cue sits at its start. |
+| `[idle] …` | Opens on `idle`; 1.3 s of audio for four words, so the word is not spoken (by-ear check with the operator). |
+| Latency to the player, warm | Flash 0.49 s, v3 1.29 s from Enter; the tablet's audio output then starts ~0.47 s later for both (head position lags `play()` by that much; no underruns). |
+| v3 delivery | Bursts of ~0.4 s of audio, 7 s of audio within 2.3 s of the first byte -- well ahead of playback. |
+
+Not measured: v3's credit cost per character (the key lacks `user_read`).
+Worth trying later: `AudioTrack.PERFORMANCE_MODE_LOW_LATENCY` (API 26+) to cut
+the half-second output start; a `remote/scripts/check-words` script so the two
+word tables cannot drift; `GET /tags`.
