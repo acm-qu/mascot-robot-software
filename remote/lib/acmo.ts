@@ -28,17 +28,19 @@ export function normalize(address: string): string {
   return a || DEFAULT_ADDRESS;
 }
 
-async function call<T>(base: string, path: string, init?: RequestInit): Promise<T> {
+async function call<T>(base: string, path: string, init?: RequestInit, signal?: AbortSignal): Promise<T> {
   let res: Response;
+  let text: string;
   try {
-    res = await fetch(base + path, { ...init, signal: AbortSignal.timeout(TIMEOUT_MS) });
+    const timeout = AbortSignal.timeout(TIMEOUT_MS);
+    res = await fetch(base + path, { ...init, signal: signal ? AbortSignal.any([signal, timeout]) : timeout });
+    text = await res.text();
   } catch {
     throw new Error(`can't reach ${base}`);
   }
-  const text = await res.text();
   let data: unknown = null;
   try {
-    data = text ? JSON.parse(text) : null;
+    data = JSON.parse(text);
   } catch {
     // not JSON; the status code is the message then
   }
@@ -61,6 +63,7 @@ export function stop(base: string) {
   return call<{ ok: boolean }>(base, "/stop", { method: "POST" });
 }
 
-export function state(base: string) {
-  return call<State>(base, "/state");
+/** What the tablet is doing. [signal] cancels a poll that is no longer wanted. */
+export function state(base: string, signal?: AbortSignal) {
+  return call<State>(base, "/state", undefined, signal);
 }

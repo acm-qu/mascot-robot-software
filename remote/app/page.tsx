@@ -34,8 +34,10 @@ export default function Page() {
   const [status, setStatus] = useState<State | null>(null);
   const [reachable, setReachable] = useState<boolean | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
+  const [whyNot, setWhyNot] = useState<string | null>(null);
   const box = useRef<HTMLTextAreaElement>(null);
   const polling = useRef(false);
+  const sending = useRef(false);
   const mac = useIsMac();
   const base = address === null ? null : normalize(address);
 
@@ -43,23 +45,27 @@ export default function Page() {
     box.current?.focus();
   }, []);
 
-  // Ask the tablet what it is doing, twice a second; a slow answer is not asked over.
+  // Ask the tablet what it is doing, twice a second; a slow answer is not asked over, and a poll
+  // for an address that has since been edited is abandoned rather than allowed to block the next.
   useEffect(() => {
     if (base === null) return;
     let alive = true;
+    const aborter = new AbortController();
     const tick = async () => {
       if (polling.current) return;
       polling.current = true;
       try {
-        const s = await fetchState(base);
+        const s = await fetchState(base, aborter.signal);
         if (alive) {
           setStatus(s);
           setReachable(true);
+          setWhyNot(null);
         }
-      } catch {
+      } catch (e) {
         if (alive) {
           setStatus(null);
           setReachable(false);
+          setWhyNot((e as Error).message);
         }
       } finally {
         polling.current = false;
@@ -69,6 +75,8 @@ export default function Page() {
     const timer = window.setInterval(() => void tick(), POLL_MS);
     return () => {
       alive = false;
+      aborter.abort();
+      polling.current = false;
       window.clearInterval(timer);
     };
   }, [base]);
@@ -76,7 +84,8 @@ export default function Page() {
   const send = useCallback(
     async (now: boolean) => {
       const line = text.trim();
-      if (!line || base === null) return;
+      if (!line || base === null || sending.current) return;
+      sending.current = true;
       try {
         await say(base, line, feeling, now);
         setText("");
@@ -84,6 +93,8 @@ export default function Page() {
         if (box.current) box.current.style.height = "auto";
       } catch (e) {
         setProblem((e as Error).message);
+      } finally {
+        sending.current = false;
       }
       box.current?.focus();
     },
@@ -101,6 +112,7 @@ export default function Page() {
   }, [base]);
 
   const onKey = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.nativeEvent.isComposing) return; // Enter that commits an IME candidate is not a send
     if (e.key === "Escape") {
       e.preventDefault();
       void hush();
@@ -123,7 +135,7 @@ export default function Page() {
         <label className="address">
           <span
             className={`dot ${reachable === null ? "" : reachable ? "on" : "off"}`}
-            title={reachable ? "connected" : "not connected"}
+            title={reachable === null ? "connecting" : reachable ? "connected" : "not connected"}
           />
           <input
             value={address ?? ""}
@@ -134,10 +146,14 @@ export default function Page() {
         </label>
       </header>
 
-      {reachable === false && (
+      {reachable === false && whyNot !== null && !whyNot.startsWith("can't reach") && (
+        <p className="hint">The tablet answers, but: {whyNot}.</p>
+      )}
+      {reachable === false && (whyNot === null || whyNot.startsWith("can't reach")) && (
         <p className="hint">
           Can&apos;t reach {base}. Run <code>adb forward tcp:8765 tcp:8765</code>, or enter the address from ACMO&apos;s
-          settings card (five taps in the top-left corner of the face).
+          settings card (five taps in the top-left corner of the face). On a LAN address, macOS may also need the
+          browser allowed under System Settings → Privacy &amp; Security → Local Network.
         </p>
       )}
 

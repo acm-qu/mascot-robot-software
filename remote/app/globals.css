@@ -13,6 +13,7 @@
   :root {
     --paper: #010000;
     --ink: #fbfafb;
+    --gray: #706d70;
     --teal: #3ae4d1;
   }
 }
@@ -157,6 +158,7 @@ textarea {
   border-radius: 24px;
   padding: 16px 20px;
   resize: none;
+  overflow: hidden;
   min-height: 88px;
   width: 100%;
 }

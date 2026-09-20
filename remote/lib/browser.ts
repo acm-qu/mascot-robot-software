@@ -10,6 +10,7 @@ import { DEFAULT_ADDRESS } from "./acmo";
 
 const ADDRESS_KEY = "acmo.address";
 const listeners = new Set<() => void>();
+let current: string | null = null; // read from storage once; then the live value, storage or not
 
 function subscribe(listener: () => void) {
   listeners.add(listener);
@@ -18,18 +19,32 @@ function subscribe(listener: () => void) {
   };
 }
 
+function load(): string {
+  if (current === null) {
+    let saved: string | null = null;
+    try {
+      saved = window.localStorage.getItem(ADDRESS_KEY);
+    } catch {
+      // no storage here (a locked-down browser): remembered for this page only
+    }
+    current = saved ?? DEFAULT_ADDRESS;
+  }
+  return current;
+}
+
 /** The tablet address, remembered per browser; null while the server renders. */
 export function useStoredAddress(): string | null {
-  return useSyncExternalStore(
-    subscribe,
-    () => window.localStorage.getItem(ADDRESS_KEY) ?? DEFAULT_ADDRESS,
-    () => null,
-  );
+  return useSyncExternalStore(subscribe, load, () => null);
 }
 
 /** Remembers [address] and re-renders whoever is showing it. */
 export function storeAddress(address: string) {
-  window.localStorage.setItem(ADDRESS_KEY, address);
+  current = address;
+  try {
+    window.localStorage.setItem(ADDRESS_KEY, address);
+  } catch {
+    // remembered for this page only
+  }
   listeners.forEach((listener) => listener());
 }
 
