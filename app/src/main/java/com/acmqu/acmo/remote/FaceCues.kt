@@ -14,6 +14,8 @@ data class Cue(val atByte: Long, val feeling: Expression)
  * index 0 is never a cue: the Brain shows that face from the start.
  */
 class FaceCues(tags: List<FaceTag>) {
+    // Index 0 is the opening tag, shown from the start. The Brain may open on a later tag too (when only
+    // voice tags precede it); re-cueing that one is a no-op, since FaceView ignores an unchanged expression.
     private val tags = tags.filter { it.index > 0 }
     private var timedChars = 0
     private var nextTag = 0
