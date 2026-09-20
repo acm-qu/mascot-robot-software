@@ -10,10 +10,12 @@ import com.acmqu.acmo.remote.Snapshot
 import org.json.JSONObject
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import java.net.HttpURLConnection
+import java.net.Socket
 import java.net.URL
 
 /** The real server on a free port, against a fake Brain. */
@@ -178,5 +180,52 @@ class RemoteServerTest {
         server.stopListening()                // already stopped
         assertTrue(server.startListening())   // listens again
         assertEquals(200, request("GET", "/").code)
+    }
+
+    @Test
+    fun `replies are never gzipped, even for a browser that accepts it`() {
+        // HttpURLConnection never asks for gzip, so every other test sees a different wire format from a browser's.
+        for ((method, path) in listOf("OPTIONS" to "/say", "GET" to "/state")) {
+            val c = URL("http://127.0.0.1:${server.listeningPort}$path").openConnection() as HttpURLConnection
+            c.requestMethod = method
+            c.setRequestProperty("Accept-Encoding", "gzip")
+            assertEquals(if (method == "OPTIONS") 204 else 200, c.responseCode)
+            assertNull("$method $path", c.getHeaderField("Content-Encoding"))
+            assertNull("$method $path", c.getHeaderField("Transfer-Encoding"))
+            if (method == "GET") assertEquals("idle", JSONObject(c.inputStream.bufferedReader().readText()).getString("state"))
+            c.disconnect()
+        }
+    }
+
+    @Test
+    fun `a body that claims to be huge is refused unread, and the server survives`() {
+        Socket("127.0.0.1", server.listeningPort).use { s ->
+            s.soTimeout = 5000
+            val request = "POST /say HTTP/1.1\r\nHost: acmo\r\nContent-Type: application/json\r\nContent-Length: 2000000000\r\n\r\n{}"
+            s.getOutputStream().write(request.toByteArray(Charsets.US_ASCII))
+            s.getOutputStream().flush()
+            val status = s.getInputStream().bufferedReader().readLine()
+            assertTrue("got: $status", status.startsWith("HTTP/1.1 413"))
+        }
+        assertTrue(host.said.isEmpty())
+        assertEquals(200, request("GET", "/").code)
+    }
+
+    @Test
+    fun `a host that throws is a 500 that says why`() {
+        val broken = object : RemoteServer.Host {
+            override fun say(line: Line, now: Boolean): Said = throw IllegalStateException("no voice today")
+            override fun hush() {}
+            override fun snapshot(): Snapshot = host.snapshot
+        }
+        val s = RemoteServer(0, broken, onMain = { it() }, hasKey = true)
+        assertTrue(s.startListening())
+        try {
+            val r = request("POST", "/say", """{"text": "Hello"}""", on = s)
+            assertEquals(500, r.code)
+            assertEquals("IllegalStateException: no voice today", JSONObject(r.body).getString("error"))
+        } finally {
+            s.stopListening()
+        }
     }
 }
