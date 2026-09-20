@@ -24,7 +24,7 @@ class RemoteServerTest {
     private class FakeHost : RemoteServer.Host {
         val said = mutableListOf<Pair<Line, Boolean>>()
         var hushed = 0
-        var snapshot = Snapshot(Brain.State.IDLE, null, emptyList(), null)
+        var snapshot = Snapshot(Brain.State.IDLE, Expression.IDLE, null, emptyList(), null)
 
         override fun say(line: Line, now: Boolean): Said {
             said += line to now
@@ -138,6 +138,7 @@ class RemoteServerTest {
     fun `state is the snapshot as JSON`() {
         host.snapshot = Snapshot(
             Brain.State.SPEAKING,
+            Expression.SAD,
             Entry(3, Line("Hi", Expression.HAPPY)),
             listOf(Entry(4, Line("Bye", Expression.SAD))),
             Failure(2, "ElevenLabs 401: Invalid API key"),
@@ -146,6 +147,7 @@ class RemoteServerTest {
         assertEquals(200, r.code)
         val json = JSONObject(r.body)
         assertEquals("speaking", json.getString("state"))
+        assertEquals("sad", json.getString("face"))
         assertEquals(3, json.getJSONObject("line").getInt("id"))
         assertEquals("sad", json.getJSONArray("queue").getJSONObject(0).getString("feeling"))
         assertEquals("ElevenLabs 401: Invalid API key", json.getJSONObject("error").getString("message"))

@@ -92,8 +92,9 @@ class LineTest {
 
     @Test
     fun `a quiet snapshot has nulls, not missing keys`() {
-        val json = Snapshot(Brain.State.IDLE, null, emptyList(), null).toJson()
+        val json = Snapshot(Brain.State.IDLE, Expression.IDLE, null, emptyList(), null).toJson()
         assertEquals("idle", json.getString("state"))
+        assertEquals("idle", json.getString("face"))
         assertTrue(json.has("line"))
         assertTrue(json.isNull("line"))
         assertEquals(0, json.getJSONArray("queue").length())
@@ -102,14 +103,16 @@ class LineTest {
     }
 
     @Test
-    fun `a busy snapshot lists the line, the queue and the error`() {
+    fun `a busy snapshot lists the face on screen, the line, the queue and the error`() {
         val json = Snapshot(
             Brain.State.SPEAKING,
+            Expression.SAD,   // a tag moved the face; the line started happy
             Entry(3, Line("Hi", Expression.HAPPY)),
             listOf(Entry(4, Line("Bye", Expression.SAD)), Entry(5, Line("Wait", Expression.ANGRY))),
             Failure(2, "ElevenLabs 401: Invalid API key"),
         ).toJson()
         assertEquals("speaking", json.getString("state"))
+        assertEquals("sad", json.getString("face"))
         val line = json.getJSONObject("line")
         assertEquals(3, line.getInt("id"))
         assertEquals("Hi", line.getString("text"))

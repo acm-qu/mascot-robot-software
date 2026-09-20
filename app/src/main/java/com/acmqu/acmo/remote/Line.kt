@@ -61,10 +61,14 @@ data class Failure(val id: Int, val message: String) {
     fun toJson(): JSONObject = JSONObject().put("id", id).put("message", message)
 }
 
-/** What `GET /state` reports: [line] is the remote line playing, null during a Gemini reply or when quiet. */
-data class Snapshot(val state: Brain.State, val line: Entry?, val queue: List<Entry>, val error: Failure?) {
+/**
+ * What `GET /state` reports: [face] is the expression on screen right now (it moves during a
+ * tagged line); [line] is the remote line playing, null during a Gemini reply or when quiet.
+ */
+data class Snapshot(val state: Brain.State, val face: Expression, val line: Entry?, val queue: List<Entry>, val error: Failure?) {
     fun toJson(): JSONObject = JSONObject()
         .put("state", state.name.lowercase())
+        .put("face", face.label)
         .put("line", line?.toJson() ?: JSONObject.NULL)
         .put("queue", JSONArray().apply { queue.forEach { put(it.toJson()) } })
         .put("error", error?.toJson() ?: JSONObject.NULL)

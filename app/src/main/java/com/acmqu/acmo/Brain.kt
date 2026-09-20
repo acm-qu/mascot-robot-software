@@ -463,7 +463,7 @@ class Brain(
         idle()
     }
 
-    override fun snapshot(): Snapshot = Snapshot(state, playing, queue.toList(), lastFailure)
+    override fun snapshot(): Snapshot = Snapshot(state, face.expression, playing, queue.toList(), lastFailure)
 
     /** Cancels the remote line playing and forgets the ones waiting. */
     private fun dropLines() {
