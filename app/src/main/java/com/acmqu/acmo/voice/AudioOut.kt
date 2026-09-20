@@ -38,7 +38,11 @@ class AudioOut(
 
     /** Any thread. */
     fun play(pcm: ByteArray) {
-        if (!cancelled && pcm.isNotEmpty()) queue.put(pcm)
+        if (cancelled || pcm.isEmpty()) return
+        // Whole frames only: AudioTrack.write never takes a half frame, and the loop below would spin on it.
+        val whole = pcm.size and 1.inv()
+        if (whole != pcm.size) Log.w(TAG, "dropping the odd byte of a ${pcm.size}-byte chunk")
+        if (whole > 0) queue.put(if (whole == pcm.size) pcm else pcm.copyOf(whole))
     }
 
     /** Runs [action] on the main thread when playback reaches [atByte] of this reply. */
@@ -74,7 +78,6 @@ class AudioOut(
         var written = 0L
         var started = false
         try {
-            t.play()
             while (!cancelled) {
                 val chunk = queue.poll(20, TimeUnit.MILLISECONDS)
                 if (chunk === END) break
@@ -84,13 +87,16 @@ class AudioOut(
                 }
                 if (!started) {
                     started = true
+                    // Started with data in hand, so the track does not run empty while the first bytes are on their way.
+                    t.play()
                     main.post { onStart(this) }
                 }
                 var off = 0
                 while (off < chunk.size && !cancelled) {
                     // Small slices so the cues are checked every 20 ms even while write() blocks.
                     val n = t.write(chunk, off, minOf(SLICE_BYTES, chunk.size - off))
-                    if (n < 0) throw IllegalStateException("AudioTrack.write returned $n")
+                    // 0 means the track is stopped or paused (a cancel), never "try again": spinning here would never end.
+                    if (n <= 0) throw IllegalStateException("AudioTrack.write returned $n")
                     off += n
                     written += n
                     fireCues(t)

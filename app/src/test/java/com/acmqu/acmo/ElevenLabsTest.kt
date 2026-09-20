@@ -42,6 +42,7 @@ class ElevenLabsTest {
         }
 
         fun chunkCount(): Int = synchronized(chunks) { chunks.size }
+        fun chunkSizes(): List<Int> = synchronized(chunks) { chunks.map { it.size } }
         fun audio(): ByteArray = synchronized(chunks) { chunks.fold(ByteArray(0)) { acc, c -> acc + c } }
     }
 
@@ -83,6 +84,20 @@ class ElevenLabsTest {
         assertEquals(1, sink.finished)
         assertTrue("expected several chunks, got ${sink.chunkCount()}", sink.chunkCount() > 1)
         assertArrayEquals(audio, sink.audio())
+    }
+
+    @Test
+    fun `reads that end mid-frame still hand over whole frames`() {
+        // A 16-bit frame is two bytes; the network hands over any number. The player must never see a half frame.
+        val audio = ByteArray(20_001) { (it % 251).toByte() }
+        server.enqueue(MockResponse().setChunkedBody(Buffer().write(audio), 3001))
+        val sink = RecordingSink()
+        client().stream("Hello", sink)
+        assertTrue(sink.done.await(5, TimeUnit.SECONDS))
+        assertNull(sink.failure)
+        assertEquals(1, sink.finished)
+        assertTrue("every chunk is whole frames", sink.chunkSizes().all { it % 2 == 0 })
+        assertArrayEquals(audio.copyOf(20_000), sink.audio())   // the dangling odd byte is not a frame
     }
 
     @Test

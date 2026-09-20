@@ -68,17 +68,29 @@ class ElevenLabs(
                         sink.fail("ElevenLabs ${r.code}: $why")
                         return
                     }
+                    Log.d(TAG, "${r.protocol} ${r.code} ${r.header("content-type")}")
                     val input = r.body?.byteStream() ?: run {
                         if (!call.isCanceled()) sink.finish()
                         return
                     }
+                    // A frame is two bytes and a read ends anywhere, so an odd byte is held back for
+                    // the next read: the player must only ever see whole frames.
                     val buf = ByteArray(CHUNK_BYTES)
+                    var held = 0
+                    var total = 0L
                     try {
                         while (true) {
-                            val n = input.read(buf)
+                            val n = input.read(buf, held, buf.size - held)
                             if (n < 0) break
-                            if (n > 0) sink.play(buf.copyOf(n))
+                            if (n == 0) continue
+                            val have = held + n
+                            val whole = have and 1.inv()
+                            if (whole > 0) sink.play(buf.copyOf(whole))
+                            total += whole
+                            held = have - whole
+                            if (held > 0) buf[0] = buf[whole]
                         }
+                        Log.d(TAG, "body ended: $total bytes, ${total / (AudioOut.BYTES_PER_MS * 1000)} s of audio")
                     } catch (e: IOException) {
                         if (call.isCanceled()) return
                         Log.w(TAG, "stream ended early", e)
