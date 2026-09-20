@@ -349,5 +349,7 @@ Verified on the Redmi Pad 2 (`b15f152c`), the same day, over `adb forward`:
 
 Not measured: v3's credit cost per character (the key lacks `user_read`).
 Worth trying later: `AudioTrack.PERFORMANCE_MODE_LOW_LATENCY` (API 26+) to cut
-the half-second output start; a `remote/scripts/check-words` script so the two
-word tables cannot drift; `GET /tags`.
+the half-second output start; `GET /tags`. `remote/scripts/check-words.mjs` (run by
+`npm run lint`) already fails when the two word tables disagree, and `Brain` warns
+when ElevenLabs times a different number of characters than the text has
+(newlines are counted, probed).

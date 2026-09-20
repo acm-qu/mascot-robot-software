@@ -258,7 +258,7 @@ model can use (the enum in the schema is built from the same list).
 | `Speaker` pitch / rate | `setPitch(1.1f)`, `setSpeechRate(1.0f)` in its init. | |
 | `ElevenLabs.FAST_MODEL` / `EXPRESSIVE_MODEL` | The model for a plain line and for one with a `[tag]`. Flash starts in under half a second and reads a tag out loud; v3 takes it as direction and starts about a second later. | `eleven_flash_v2_5` / `eleven_v3` |
 | `ElevenLabs.DEFAULT_VOICE_ID` | The voice when `ELEVENLABS_VOICE_ID` is not set. Any id from ElevenLabs' `GET /v1/voices`. | Jessica |
-| `Tags.WORDS` | The bracketed words that change the face, built from the `EXTRAS` table in `Tags.kt`. Add a synonym there, and to `TAG_WORDS` in `remote/lib/acmo.ts` so the console shows it. | the table in *Remote console* |
+| `Tags.WORDS` | The bracketed words that change the face, built from the `EXTRAS` table in `Tags.kt`. Add a synonym there, and to `TAG_WORDS` in `remote/lib/acmo.ts` so the console shows it (`npm run lint` fails while they disagree). | the table in *Remote console* |
 | `RemoteServer.PORT` | Where the tablet listens for the console. | 8765 |
 
 ## Known limits
