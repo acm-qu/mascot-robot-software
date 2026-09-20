@@ -8,16 +8,19 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
+import okio.ByteString.Companion.decodeBase64
 import org.json.JSONException
 import org.json.JSONObject
 import java.io.IOException
 import java.util.concurrent.TimeUnit
 
 /**
- * ElevenLabs text-to-speech, streamed. [stream] asks for a line as raw
- * 24 kHz mono 16-bit PCM -- exactly what [AudioOut] plays, so nothing is
- * decoded -- and hands the bytes to a [Sink] chunk by chunk as they arrive,
- * on OkHttp's thread. The first chunk is usually heard within half a second.
+ * ElevenLabs text-to-speech, streamed with timing. [stream] asks for a line as raw 24 kHz mono
+ * 16-bit PCM -- exactly what [AudioOut] plays, so nothing is decoded but base64 -- and hands the
+ * bytes to a [Sink] chunk by chunk as they arrive, on OkHttp's thread, each chunk preceded by
+ * where in the audio the characters it speaks begin. That timing is how a `[tag]` in the text
+ * changes the face at the right moment. The first chunk is usually heard within half a second
+ * from the fast model, within two from the expressive one.
  *
  * The client keeps its TLS connection to ElevenLabs alive between lines, so
  * only the first line after a few minutes' quiet pays for the handshake.
@@ -33,18 +36,33 @@ class ElevenLabs(
         /** Some of the audio, in order. OkHttp's thread. */
         fun play(pcm: ByteArray)
 
+        /**
+         * The next characters of the text, in order, and the byte of the audio at which each begins,
+         * delivered before the audio they describe. OkHttp's thread. A sink that does not care
+         * about timing need not override it.
+         */
+        fun timed(chars: String, atByte: LongArray) {}
+
         /** The whole line has been delivered. */
         fun finish()
 
-        /** No more audio is coming: an HTTP error, a timeout, a dropped connection. Not after a cancel, apart from one that lands mid-read. */
+        /**
+         * No more audio is coming: an HTTP error, a timeout, a dropped connection, a chunk that made
+         * no sense. Not after a cancel, apart from one that lands mid-read.
+         */
         fun fail(message: String)
     }
 
-    private val url = "$baseUrl/v1/text-to-speech/$voiceId/stream?output_format=$OUTPUT_FORMAT"
+    private val url = "$baseUrl/v1/text-to-speech/$voiceId/stream/with-timestamps?output_format=$OUTPUT_FORMAT"
 
-    /** Starts streaming [text] into [sink]. Cancel the returned call to stop; the sink then hears nothing more. */
-    fun stream(text: String, sink: Sink): Call {
-        val body = JSONObject().put("text", text).put("model_id", MODEL).toString()
+    /**
+     * Starts streaming [text] into [sink]. An [expressive] line goes to the v3 model, which reads a
+     * `[tag]` as direction; a plain one to the fast model, which would read it out loud. Cancel the
+     * returned call to stop; the sink then hears nothing more.
+     */
+    fun stream(text: String, sink: Sink, expressive: Boolean = false): Call {
+        val model = if (expressive) EXPRESSIVE_MODEL else FAST_MODEL
+        val body = JSONObject().put("text", text).put("model_id", model).toString()
         val request = Request.Builder()
             .url(url)
             .header("xi-api-key", apiKey)
@@ -68,33 +86,30 @@ class ElevenLabs(
                         sink.fail("ElevenLabs ${r.code}: $why")
                         return
                     }
-                    Log.d(TAG, "${r.protocol} ${r.code} ${r.header("content-type")}")
-                    val input = r.body?.byteStream() ?: run {
+                    Log.d(TAG, "${r.protocol} ${r.code} $model")
+                    val reader = r.body?.charStream()?.buffered() ?: run {
                         if (!call.isCanceled()) sink.finish()
                         return
                     }
-                    // A frame is two bytes and a read ends anywhere, so an odd byte is held back for
-                    // the next read: the player must only ever see whole frames.
-                    val buf = ByteArray(CHUNK_BYTES)
-                    var held = 0
+                    // One JSON object per line, a blank line between them; each carries some audio and,
+                    // usually, the timing of the characters it speaks.
                     var total = 0L
                     try {
                         while (true) {
-                            val n = input.read(buf, held, buf.size - held)
-                            if (n < 0) break
-                            if (n == 0) continue
-                            val have = held + n
-                            val whole = have and 1.inv()
-                            if (whole > 0) sink.play(buf.copyOf(whole))
-                            total += whole
-                            held = have - whole
-                            if (held > 0) buf[0] = buf[whole]
+                            val line = reader.readLine() ?: break
+                            if (line.isBlank()) continue
+                            total += deliver(line, sink)
                         }
                         Log.d(TAG, "body ended: $total bytes, ${total / (AudioOut.BYTES_PER_MS * 1000)} s of audio")
                     } catch (e: IOException) {
                         if (call.isCanceled()) return
                         Log.w(TAG, "stream ended early", e)
                         sink.fail("ElevenLabs: ${e.message ?: e.javaClass.simpleName}")
+                        return
+                    } catch (e: BadChunk) {
+                        if (call.isCanceled()) return
+                        Log.w(TAG, "bad chunk: ${e.message}")
+                        sink.fail("ElevenLabs: bad chunk")
                         return
                     }
                     if (!call.isCanceled()) sink.finish()
@@ -104,12 +119,52 @@ class ElevenLabs(
         return call
     }
 
+    /** A line of the stream that is not what ElevenLabs documents. */
+    private class BadChunk(message: String) : Exception(message)
+
+    /** One object of the stream: its timing to the sink first, then its audio. Returns the audio's size in bytes. */
+    private fun deliver(line: String, sink: Sink): Int {
+        val o = try {
+            JSONObject(line)
+        } catch (_: JSONException) {
+            throw BadChunk("not JSON: ${line.take(80)}")
+        }
+        o.optJSONObject("alignment")?.let { alignment ->
+            val chars = alignment.optJSONArray("characters") ?: throw BadChunk("an alignment without characters")
+            val starts = alignment.optJSONArray("character_start_times_seconds")
+                ?: throw BadChunk("an alignment without start times")
+            if (chars.length() != starts.length()) throw BadChunk("${chars.length()} characters, ${starts.length()} times")
+            if (chars.length() > 0) {
+                val text = StringBuilder(chars.length())
+                val atByte = LongArray(chars.length())
+                for (i in 0 until chars.length()) {
+                    text.append(chars.optString(i))
+                    atByte[i] = (starts.optDouble(i, 0.0) * BYTES_PER_SECOND).toLong() and 1L.inv()
+                }
+                sink.timed(text.toString(), atByte)
+            }
+        }
+        // Timing without audio is not something ElevenLabs sends today, and not worth failing a line over.
+        val audio = when (val a = o.opt("audio_base64")) {
+            null, JSONObject.NULL -> return 0
+            is String -> a
+            else -> throw BadChunk("audio_base64 is not a string")
+        }
+        if (audio.isEmpty()) return 0
+        val pcm = audio.decodeBase64()?.toByteArray() ?: throw BadChunk("audio that is not base64")
+        if (pcm.isNotEmpty()) sink.play(pcm)
+        return pcm.size
+    }
+
     companion object {
         private const val TAG = "ElevenLabs"
         const val BASE_URL = "https://api.elevenlabs.io"
 
-        /** The lowest-latency model (about 75 ms), 32 languages including Arabic. */
-        const val MODEL = "eleven_flash_v2_5"
+        /** The lowest-latency model (about 75 ms), 32 languages including Arabic. Reads a `[tag]` out loud. */
+        const val FAST_MODEL = "eleven_flash_v2_5"
+
+        /** Eleven v3: takes a `[tag]` as direction for the voice. Starts about a second later than [FAST_MODEL]. */
+        const val EXPRESSIVE_MODEL = "eleven_v3"
 
         /** Raw 24 kHz mono 16-bit PCM: what AudioOut plays, available on every tier. */
         const val OUTPUT_FORMAT = "pcm_24000"
@@ -117,8 +172,8 @@ class ElevenLabs(
         /** Jessica -- "playful, bright, warm" -- one of ElevenLabs' stock voices. */
         const val DEFAULT_VOICE_ID = "cgSgspJ2msm6clMCkdW9"
 
-        /** About 85 ms of audio per read. */
-        const val CHUNK_BYTES = 4096
+        /** Seconds in the timing to bytes of the audio: 24 000 frames of two bytes a second. */
+        const val BYTES_PER_SECOND = AudioOut.BYTES_PER_MS * 1000.0
 
         /** As much of an error body as is worth reading; the message is truncated to 200 characters anyway. */
         const val ERROR_BODY_BYTES = 4096L

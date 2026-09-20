@@ -5,6 +5,8 @@ import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import okhttp3.mockwebserver.SocketPolicy
 import okio.Buffer
+import okio.ByteString.Companion.toByteString
+import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.After
 import org.junit.Assert.assertArrayEquals
@@ -18,17 +20,30 @@ import org.junit.Test
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 
-/** The streaming client against a local server that plays ElevenLabs. */
+/** The streaming client against a local server that plays ElevenLabs' stream-with-timestamps endpoint. */
 class ElevenLabsTest {
 
     private class RecordingSink : ElevenLabs.Sink {
+        /** Every call, in order: `play:<bytes>` or `timed:<chars>`. */
+        val events = mutableListOf<String>()
+        val timings = mutableListOf<Pair<String, LongArray>>()
         private val chunks = mutableListOf<ByteArray>()
         @Volatile var finished = 0
         @Volatile var failure: String? = null
         val done = CountDownLatch(1)
 
         override fun play(pcm: ByteArray) {
-            synchronized(chunks) { chunks += pcm }
+            synchronized(this) {
+                chunks += pcm
+                events += "play:${pcm.size}"
+            }
+        }
+
+        override fun timed(chars: String, atByte: LongArray) {
+            synchronized(this) {
+                timings += chars to atByte
+                events += "timed:$chars"
+            }
         }
 
         override fun finish() {
@@ -41,9 +56,8 @@ class ElevenLabsTest {
             done.countDown()
         }
 
-        fun chunkCount(): Int = synchronized(chunks) { chunks.size }
-        fun chunkSizes(): List<Int> = synchronized(chunks) { chunks.map { it.size } }
-        fun audio(): ByteArray = synchronized(chunks) { chunks.fold(ByteArray(0)) { acc, c -> acc + c } }
+        fun chunkCount(): Int = synchronized(this) { chunks.size }
+        fun audio(): ByteArray = synchronized(this) { chunks.fold(ByteArray(0)) { acc, c -> acc + c } }
     }
 
     private val server = MockWebServer()
@@ -56,48 +70,143 @@ class ElevenLabsTest {
 
     private fun client() = ElevenLabs("key-123", "voice-abc", baseUrl = server.url("/").toString().trimEnd('/'))
 
-    @Test
-    fun `asks for the line as streamed pcm_24000 from the flash model`() {
-        server.enqueue(MockResponse().setBody(Buffer().write(ByteArray(10))))
-        val sink = RecordingSink()
-        client().stream("Hello there", sink)
-        assertTrue(sink.done.await(5, TimeUnit.SECONDS))
+    /**
+     * One object of the stream as ElevenLabs sends it: the audio as base64 and the timing of
+     * [chars] -- each starting at [from] seconds, [step] seconds apart -- or `"alignment": null`
+     * when [chars] is null. Followed by the blank line the real stream puts between objects.
+     */
+    private fun obj(pcm: ByteArray, chars: String? = null, from: Double = 0.0, step: Double = 0.5): String {
+        val o = JSONObject().put("audio_base64", pcm.toByteString().base64())
+        if (chars == null) {
+            o.put("alignment", JSONObject.NULL)
+        } else {
+            val cs = JSONArray()
+            val starts = JSONArray()
+            val ends = JSONArray()
+            chars.forEachIndexed { i, c ->
+                cs.put(c.toString())
+                starts.put(from + i * step)
+                ends.put(from + (i + 1) * step)
+            }
+            o.put(
+                "alignment",
+                JSONObject().put("characters", cs).put("character_start_times_seconds", starts).put("character_end_times_seconds", ends),
+            )
+        }
+        o.put("normalized_alignment", JSONObject.NULL).put("quality_check", JSONObject.NULL)
+        return o.toString() + "\n\n"
+    }
 
+    private fun pcm(size: Int, seed: Int = 0) = ByteArray(size) { ((it + seed) % 251).toByte() }
+
+    @Test
+    fun `asks for the line on the timestamps endpoint, from the fast model unless expressive`() {
+        server.enqueue(MockResponse().setBody(""))
+        server.enqueue(MockResponse().setBody(""))
+        val plain = RecordingSink()
+        client().stream("Hello there", plain)
+        assertTrue(plain.done.await(5, TimeUnit.SECONDS))
         val r = server.takeRequest()
         assertEquals("POST", r.method)
-        assertEquals("/v1/text-to-speech/voice-abc/stream?output_format=pcm_24000", r.path)
+        assertEquals("/v1/text-to-speech/voice-abc/stream/with-timestamps?output_format=pcm_24000", r.path)
         assertEquals("key-123", r.getHeader("xi-api-key"))
         assertTrue(r.getHeader("Content-Type")!!.startsWith("application/json"))
         val body = JSONObject(r.body.readUtf8())
         assertEquals("Hello there", body.getString("text"))
         assertEquals("eleven_flash_v2_5", body.getString("model_id"))
+
+        val tagged = RecordingSink()
+        client().stream("[sad] Hello there", tagged, expressive = true)
+        assertTrue(tagged.done.await(5, TimeUnit.SECONDS))
+        val body2 = JSONObject(server.takeRequest().body.readUtf8())
+        assertEquals("[sad] Hello there", body2.getString("text"))
+        assertEquals("eleven_v3", body2.getString("model_id"))
     }
 
     @Test
-    fun `the audio arrives in chunks, in order, then finish`() {
-        val audio = ByteArray(20_000) { (it % 251).toByte() }
-        server.enqueue(MockResponse().setChunkedBody(Buffer().write(audio), 3000))
+    fun `the audio arrives decoded, in order, then finish`() {
+        val a = pcm(3000)
+        val b = pcm(5000, 7)
+        val c = pcm(1200, 11)
+        val body = obj(a, "Hello") + obj(b) + obj(c, " there!", from = 1.0)
+        server.enqueue(MockResponse().setChunkedBody(Buffer().writeUtf8(body), 1000))
         val sink = RecordingSink()
-        client().stream("Hello", sink)
+        client().stream("Hello there!", sink)
         assertTrue(sink.done.await(5, TimeUnit.SECONDS))
         assertNull(sink.failure)
         assertEquals(1, sink.finished)
-        assertTrue("expected several chunks, got ${sink.chunkCount()}", sink.chunkCount() > 1)
-        assertArrayEquals(audio, sink.audio())
+        assertEquals(3, sink.chunkCount())
+        assertArrayEquals(a + b + c, sink.audio())
     }
 
     @Test
-    fun `reads that end mid-frame still hand over whole frames`() {
-        // A 16-bit frame is two bytes; the network hands over any number. The player must never see a half frame.
-        val audio = ByteArray(20_001) { (it % 251).toByte() }
-        server.enqueue(MockResponse().setChunkedBody(Buffer().write(audio), 3001))
+    fun `the timing comes before the audio it describes, as bytes of the stream`() {
+        // Characters half a second apart from t = 1 s; the stream is 48 000 bytes a second.
+        server.enqueue(MockResponse().setBody(obj(pcm(100), "[sad] Hi", from = 1.0)))
         val sink = RecordingSink()
-        client().stream("Hello", sink)
+        client().stream("[sad] Hi", sink)
         assertTrue(sink.done.await(5, TimeUnit.SECONDS))
         assertNull(sink.failure)
+        assertEquals(listOf("timed:[sad] Hi", "play:100"), sink.events)
+        val (chars, atByte) = sink.timings.single()
+        assertEquals("[sad] Hi", chars)
+        assertArrayEquals(longArrayOf(48_000, 72_000, 96_000, 120_000, 144_000, 168_000, 192_000, 216_000), atByte)
+    }
+
+    @Test
+    fun `a byte offset is a whole frame`() {
+        // 0.012525 s is 601.2 bytes; a frame is two bytes, so the cue lands on 600.
+        server.enqueue(MockResponse().setBody(obj(pcm(2), "a", from = 0.012525)))
+        val sink = RecordingSink()
+        client().stream("a", sink)
+        assertTrue(sink.done.await(5, TimeUnit.SECONDS))
+        assertArrayEquals(longArrayOf(600), sink.timings.single().second)
+    }
+
+    @Test
+    fun `an alignment that is null or empty sends no timing, and empty audio is not played`() {
+        val empty = JSONObject()
+            .put("audio_base64", "")
+            .put(
+                "alignment",
+                JSONObject().put("characters", JSONArray()).put("character_start_times_seconds", JSONArray()).put("character_end_times_seconds", JSONArray()),
+            )
+            .toString() + "\n\n"
+        server.enqueue(MockResponse().setBody(obj(pcm(10)) + empty))
+        val sink = RecordingSink()
+        client().stream("Hi", sink)
+        assertTrue(sink.done.await(5, TimeUnit.SECONDS))
+        assertNull(sink.failure)
+        assertEquals(listOf("play:10"), sink.events)   // the null alignment and the empty object sent nothing
         assertEquals(1, sink.finished)
-        assertTrue("every chunk is whole frames", sink.chunkSizes().all { it % 2 == 0 })
-        assertArrayEquals(audio.copyOf(20_000), sink.audio())   // the dangling odd byte is not a frame
+    }
+
+    @Test
+    fun `an object without audio is timing only`() {
+        server.enqueue(MockResponse().setBody("""{"alignment": null}""" + "\n" + obj(pcm(4), "ab")))
+        val sink = RecordingSink()
+        client().stream("ab", sink)
+        assertTrue(sink.done.await(5, TimeUnit.SECONDS))
+        assertNull(sink.failure)
+        assertEquals(listOf("timed:ab", "play:4"), sink.events)
+    }
+
+    @Test
+    fun `a line that is not what ElevenLabs sends fails the line`() {
+        val bad = listOf(
+            "not json at all\n",
+            obj(pcm(10)) + """{"audio_base64": "@@@ not base64 @@@", "alignment": null}""" + "\n",
+            """{"audio_base64": "", "alignment": {"characters": ["a", "b"], "character_start_times_seconds": [0.0]}}""" + "\n",
+            """{"audio_base64": 42, "alignment": null}""" + "\n",
+        )
+        for (body in bad) {
+            server.enqueue(MockResponse().setBody(body))
+            val sink = RecordingSink()
+            client().stream("Hi", sink)
+            assertTrue(body, sink.done.await(5, TimeUnit.SECONDS))
+            assertEquals(body, "ElevenLabs: bad chunk", sink.failure)
+            assertEquals(body, 0, sink.finished)
+        }
     }
 
     @Test
@@ -131,8 +240,9 @@ class ElevenLabsTest {
 
     @Test
     fun `a stream that dies mid-body is a failure, not a finish`() {
+        val body = buildString { repeat(60) { append(obj(pcm(3000, it))) } }   // ~240 KB; the server sends half
         server.enqueue(
-            MockResponse().setChunkedBody(Buffer().write(ByteArray(200_000)), 3000)
+            MockResponse().setChunkedBody(Buffer().writeUtf8(body), 3000)
                 .setSocketPolicy(SocketPolicy.DISCONNECT_DURING_RESPONSE_BODY),
         )
         val sink = RecordingSink()
@@ -144,7 +254,7 @@ class ElevenLabsTest {
     }
 
     @Test
-    fun `a 2xx with no audio at all just finishes`() {
+    fun `a 2xx with no body at all just finishes`() {
         server.enqueue(MockResponse())
         val sink = RecordingSink()
         client().stream("Hello", sink)
