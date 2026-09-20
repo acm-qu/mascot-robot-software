@@ -37,11 +37,11 @@ class ElevenLabs(
         fun play(pcm: ByteArray)
 
         /**
-         * The next characters of the text, in order, and the byte of the audio at which each begins,
-         * delivered before the audio they describe. OkHttp's thread. A sink that does not care
-         * about timing need not override it.
+         * Where in the audio each of the next characters of the text begins, one entry per character
+         * as ElevenLabs counts them (a code point), delivered before the audio they describe.
+         * OkHttp's thread. A sink that does not care about timing need not override it.
          */
-        fun timed(chars: String, atByte: LongArray) {}
+        fun timed(atByte: LongArray) {}
 
         /** The whole line has been delivered. */
         fun finish()
@@ -93,6 +93,7 @@ class ElevenLabs(
                     }
                     // One JSON object per line, a blank line between them; each carries some audio and,
                     // usually, the timing of the characters it speaks.
+                    // A line is one object, some 30 KB at most in practice; a body with no line breaks would only grow until the read timeout.
                     var total = 0L
                     try {
                         while (true) {
@@ -110,6 +111,12 @@ class ElevenLabs(
                         if (call.isCanceled()) return
                         Log.w(TAG, "bad chunk: ${e.message}")
                         sink.fail("ElevenLabs: bad chunk")
+                        return
+                    } catch (e: Exception) {
+                        // The sink's contract is not to throw; if it does, the line must still end.
+                        if (call.isCanceled()) return
+                        Log.e(TAG, "sink threw", e)
+                        sink.fail("ElevenLabs: ${e.javaClass.simpleName}")
                         return
                     }
                     if (!call.isCanceled()) sink.finish()
@@ -129,19 +136,22 @@ class ElevenLabs(
         } catch (_: JSONException) {
             throw BadChunk("not JSON: ${line.take(80)}")
         }
-        o.optJSONObject("alignment")?.let { alignment ->
+        val alignment = when (val a = o.opt("alignment")) {
+            null, JSONObject.NULL -> null
+            is JSONObject -> a
+            else -> throw BadChunk("alignment is not an object")
+        }
+        if (alignment != null) {
             val chars = alignment.optJSONArray("characters") ?: throw BadChunk("an alignment without characters")
             val starts = alignment.optJSONArray("character_start_times_seconds")
                 ?: throw BadChunk("an alignment without start times")
             if (chars.length() != starts.length()) throw BadChunk("${chars.length()} characters, ${starts.length()} times")
-            if (chars.length() > 0) {
-                val text = StringBuilder(chars.length())
-                val atByte = LongArray(chars.length())
-                for (i in 0 until chars.length()) {
-                    text.append(chars.optString(i))
-                    atByte[i] = (starts.optDouble(i, 0.0) * BYTES_PER_SECOND).toLong() and 1L.inv()
+            if (starts.length() > 0) {
+                val atByte = LongArray(starts.length()) { i ->
+                    val seconds = starts.opt(i) as? Number ?: throw BadChunk("a start time that is not a number")
+                    (seconds.toDouble() * BYTES_PER_SECOND).toLong() and 1L.inv()
                 }
-                sink.timed(text.toString(), atByte)
+                sink.timed(atByte)
             }
         }
         // Timing without audio is not something ElevenLabs sends today, and not worth failing a line over.
@@ -166,8 +176,8 @@ class ElevenLabs(
         /** Eleven v3: takes a `[tag]` as direction for the voice. Starts about a second later than [FAST_MODEL]. */
         const val EXPRESSIVE_MODEL = "eleven_v3"
 
-        /** Raw 24 kHz mono 16-bit PCM: what AudioOut plays, available on every tier. */
-        const val OUTPUT_FORMAT = "pcm_24000"
+        /** Raw 24 kHz mono 16-bit PCM -- AudioOut's rate, so the timing's bytes and the player's agree; available on every tier. */
+        const val OUTPUT_FORMAT = "pcm_${AudioOut.SAMPLE_RATE}"
 
         /** Jessica -- "playful, bright, warm" -- one of ElevenLabs' stock voices. */
         const val DEFAULT_VOICE_ID = "cgSgspJ2msm6clMCkdW9"

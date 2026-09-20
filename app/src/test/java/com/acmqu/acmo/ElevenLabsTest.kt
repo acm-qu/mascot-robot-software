@@ -23,10 +23,10 @@ import java.util.concurrent.TimeUnit
 /** The streaming client against a local server that plays ElevenLabs' stream-with-timestamps endpoint. */
 class ElevenLabsTest {
 
-    private class RecordingSink : ElevenLabs.Sink {
-        /** Every call, in order: `play:<bytes>` or `timed:<chars>`. */
+    private open class RecordingSink : ElevenLabs.Sink {
+        /** Every call, in order: `play:<bytes>` or `timed:<characters>`. */
         val events = mutableListOf<String>()
-        val timings = mutableListOf<Pair<String, LongArray>>()
+        val timings = mutableListOf<LongArray>()
         private val chunks = mutableListOf<ByteArray>()
         @Volatile var finished = 0
         @Volatile var failure: String? = null
@@ -39,10 +39,10 @@ class ElevenLabsTest {
             }
         }
 
-        override fun timed(chars: String, atByte: LongArray) {
+        override fun timed(atByte: LongArray) {
             synchronized(this) {
-                timings += chars to atByte
-                events += "timed:$chars"
+                timings += atByte
+                events += "timed:${atByte.size}"
             }
         }
 
@@ -147,10 +147,11 @@ class ElevenLabsTest {
         client().stream("[sad] Hi", sink)
         assertTrue(sink.done.await(5, TimeUnit.SECONDS))
         assertNull(sink.failure)
-        assertEquals(listOf("timed:[sad] Hi", "play:100"), sink.events)
-        val (chars, atByte) = sink.timings.single()
-        assertEquals("[sad] Hi", chars)
-        assertArrayEquals(longArrayOf(48_000, 72_000, 96_000, 120_000, 144_000, 168_000, 192_000, 216_000), atByte)
+        assertEquals(listOf("timed:8", "play:100"), sink.events)
+        assertArrayEquals(
+            longArrayOf(48_000, 72_000, 96_000, 120_000, 144_000, 168_000, 192_000, 216_000),
+            sink.timings.single(),
+        )
     }
 
     @Test
@@ -160,7 +161,7 @@ class ElevenLabsTest {
         val sink = RecordingSink()
         client().stream("a", sink)
         assertTrue(sink.done.await(5, TimeUnit.SECONDS))
-        assertArrayEquals(longArrayOf(600), sink.timings.single().second)
+        assertArrayEquals(longArrayOf(600), sink.timings.single())
     }
 
     @Test
@@ -183,30 +184,56 @@ class ElevenLabsTest {
 
     @Test
     fun `an object without audio is timing only`() {
-        server.enqueue(MockResponse().setBody("""{"alignment": null}""" + "\n" + obj(pcm(4), "ab")))
+        // Two deviations from the usual shape: no audio_base64 key at all, and an explicit null.
+        val noKey =
+            """{"alignment": {"characters": ["a", "b"], "character_start_times_seconds": [0.0, 0.5], "character_end_times_seconds": [0.5, 1.0]}}"""
+        val nullAudio =
+            """{"audio_base64": null, "alignment": {"characters": ["c"], "character_start_times_seconds": [1.0], "character_end_times_seconds": [1.5]}}"""
+        server.enqueue(MockResponse().setBody(noKey + "\n" + nullAudio + "\n" + obj(pcm(4))))
         val sink = RecordingSink()
-        client().stream("ab", sink)
+        client().stream("abc", sink)
         assertTrue(sink.done.await(5, TimeUnit.SECONDS))
         assertNull(sink.failure)
-        assertEquals(listOf("timed:ab", "play:4"), sink.events)
+        assertEquals(listOf("timed:2", "timed:1", "play:4"), sink.events)
+        assertArrayEquals(longArrayOf(0, 24_000), sink.timings[0])
+        assertArrayEquals(longArrayOf(48_000), sink.timings[1])
+        assertEquals(1, sink.finished)
     }
 
     @Test
     fun `a line that is not what ElevenLabs sends fails the line`() {
+        // Each body, and the chunks of audio the sink should have heard before the bad line stopped the read.
         val bad = listOf(
-            "not json at all\n",
-            obj(pcm(10)) + """{"audio_base64": "@@@ not base64 @@@", "alignment": null}""" + "\n",
-            """{"audio_base64": "", "alignment": {"characters": ["a", "b"], "character_start_times_seconds": [0.0]}}""" + "\n",
-            """{"audio_base64": 42, "alignment": null}""" + "\n",
+            "not json at all\n" to 0,
+            (obj(pcm(10)) + """{"audio_base64": "@@@ not base64 @@@", "alignment": null}""" + "\n") to 1,
+            ("""{"audio_base64": "", "alignment": {"characters": ["a", "b"], "character_start_times_seconds": [0.0]}}""" + "\n") to 0,
+            ("""{"audio_base64": 42, "alignment": null}""" + "\n") to 0,
+            ("""{"audio_base64": "", "alignment": {"character_start_times_seconds": [0.0]}}""" + "\n") to 0,
+            ("""{"audio_base64": "", "alignment": {"characters": ["a"]}}""" + "\n") to 0,
+            ("""{"audio_base64": "", "alignment": "x"}""" + "\n") to 0,
+            ("""{"audio_base64": "", "alignment": {"characters": ["a"], "character_start_times_seconds": ["soon"]}}""" + "\n") to 0,
         )
-        for (body in bad) {
+        for ((body, chunks) in bad) {
             server.enqueue(MockResponse().setBody(body))
             val sink = RecordingSink()
             client().stream("Hi", sink)
             assertTrue(body, sink.done.await(5, TimeUnit.SECONDS))
             assertEquals(body, "ElevenLabs: bad chunk", sink.failure)
             assertEquals(body, 0, sink.finished)
+            assertEquals(body, chunks, sink.chunkCount())
         }
+    }
+
+    @Test
+    fun `a sink that throws still ends the line`() {
+        server.enqueue(MockResponse().setBody(obj(pcm(10))))
+        val sink = object : RecordingSink() {
+            override fun play(pcm: ByteArray): Unit = throw IllegalStateException("boom")
+        }
+        client().stream("Hi", sink)
+        assertTrue(sink.done.await(5, TimeUnit.SECONDS))
+        assertEquals("ElevenLabs: IllegalStateException", sink.failure)
+        assertEquals(0, sink.finished)
     }
 
     @Test
