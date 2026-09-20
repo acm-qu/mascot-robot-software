@@ -60,9 +60,10 @@ the console for its hints (§4), like the eight labels already are.
 
 - The operator's pill (`feeling` in `/say`, default `happy`) is the face from
   the first sound until the first face tag.
-- If the line *starts* with a face tag, that face shows as soon as the line
-  starts, not the pill's: otherwise the pill's face would show for the whole
-  1.5–2 s the model takes to start and then flip.
+- If the line *starts* with a face tag — other tags and spaces may come before
+  it, text may not — that face shows as soon as the line starts, not the pill's:
+  otherwise the pill's face would show for the whole 1.5–2 s the model takes to
+  start and then flip.
 - Every later face tag switches the face at the **start time of its `[`**. The
   alignment attributes the pause before a new segment (0.3–0.5 s in the probes)
   to the opening bracket, so the face turns during that breath and leads the
@@ -197,7 +198,7 @@ which still guards a decoded chunk of odd length.
 
 ```kotlin
 val tags = Tags.faces(entry.line.text)
-val opening = tags.firstOrNull()?.takeIf { it.index == 0 }?.feeling ?: entry.line.feeling
+val opening = Tags.opening(text) ?: entry.line.feeling   // the first face tag, if only tags come before it
 face.setExpression(opening)
 val cues = FaceCues(tags)
 val o = player()
@@ -257,7 +258,7 @@ untouched.
 | Tag repeated, or three tags in one chunk | Cues in order; each fires. |
 | The alignment never reaches a tag (should not happen) | The face stays; a warning is logged when the line ends with cues pending. |
 | A bad chunk (§3.3) | The line fails like an HTTP error: sad face for `FAIL_PAUSE_MS`, then the queue goes on. |
-| Stop / Say now mid-line | `cancel()` clears the cues; the identity guard covers a cue already posted. |
+| Stop / Say now mid-line | The identity guard covers a cue already posted; `cancel()` drops the rest once the audio thread unwinds, and refuses new ones. |
 | A 2 000-character tagged line | v3 streams as it generates (3–5× real time in the probes), so the start is still ~2 s; watchdog budget unchanged. |
 | Emoji before a tag | Indexes are code points on both sides (§3.1), so the cue lands on the tag. |
 
