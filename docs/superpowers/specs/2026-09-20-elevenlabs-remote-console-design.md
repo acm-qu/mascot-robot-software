@@ -416,5 +416,12 @@ building it. The sections are left as designed; this is the record.
   colour, not muted; the card's rows scroll when taller than the screen; the
   hints read `no Wi-Fi address — on the Mac: adb forward tcp:8765 tcp:8765` and
   `could not listen on :8765 — is another ACMO running?`.
+- **§2.3, §2.4** Found on the tablet: a 16-bit frame is two bytes and an HTTP
+  read ends anywhere, so the first odd-sized chunk left a byte that
+  `AudioTrack.write` would never take and the player spun on it, feeding
+  silence until the watchdog. The client now hands over whole frames only, the
+  player drops a half frame and treats a zero-byte write as the end, and the
+  track is started with data in hand. Measured afterwards: 0.4 s from request
+  to first sound on a warm connection, 1.4 s cold.
 - **§4** Commits were finer-grained than the four listed: one per task, plus
   one follow-up per review that asked for a change.

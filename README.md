@@ -43,8 +43,8 @@ software/
 │   │   ├── Personality.kt       who ACMO is (the system instruction) and the JSON schema of a reply
 │   │   └── Reply.kt             Segment(feeling, text) and the parser
 │   ├── settings/
-│       ├── Settings.kt          SharedPreferences: theme, swatch, brightness
-│       └── SettingsPanel.kt     the card's controls
+│   │   ├── Settings.kt          SharedPreferences: theme, swatch, brightness
+│   │   └── SettingsPanel.kt     the card's controls
 │   └── remote/
 │       ├── RemoteServer.kt      the console's way in: POST /say, /stop and GET /state on port 8765
 │       └── Line.kt              a line and its feeling; the wire types
@@ -133,8 +133,9 @@ software/
 line, pick one of the eight faces, and ACMO says it in an ElevenLabs voice.
 The text is spoken word for word — Gemini is not involved — and streamed:
 `eleven_flash_v2_5` returns raw 24 kHz PCM that goes straight into the same
-player as Gemini's voice, so the first sound comes about half a second after
-Enter (a little more for the first line after a few minutes' quiet).
+player as Gemini's voice. Measured on the Redmi Pad 2: the first sound comes
+0.4 s after Enter on a warm connection, and about 1.5 s for the first line
+after a few minutes' quiet.
 
 ```sh
 adb forward tcp:8765 tcp:8765           # or type the address from the settings card into the page
