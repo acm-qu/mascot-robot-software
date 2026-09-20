@@ -8,7 +8,7 @@
 
 **Tech Stack:** Kotlin, OkHttp 4.12 with Okio 3.6 (base64), `org.json`, JUnit 4, MockWebServer; Next.js 16.3 / React 19 / TypeScript, plain CSS.
 
-**Spec:** `docs/superpowers/specs/2026-09-20-audio-tags-design.md`. Two small deviations, decided while planning: `FaceCues.feed` takes only the byte offsets — `feed(atByte)` — because it counts alignment entries and never needs the characters; and a stream object without `audio_base64` (or with `null` there) is treated as timing only rather than as a bad chunk — the probes show every object carries the field, so this only matters if ElevenLabs ever adds a metadata-only object. Everything else is as specified.
+**Spec:** `docs/superpowers/specs/2026-09-20-audio-tags-design.md`. Three small deviations, two decided while planning and one in Task 3's review: `FaceCues.feed` takes only the byte offsets — `feed(atByte)` — because it counts alignment entries and never needs the characters; a stream object without `audio_base64` (or with `null` there) is treated as timing only rather than as a bad chunk — the probes show every object carries the field, so this only matters if ElevenLabs ever adds a metadata-only object; and `Sink.timed` likewise takes only the byte offsets — `timed(atByte)`, one entry per code point — since nothing read the characters and a `String` is the wrong shape for them (an emoji is one entry but two UTF-16 units). Task 3's snippets below show the signature as first written; Task 5 uses the final one. Everything else is as specified.
 
 ---
 
@@ -1066,7 +1066,7 @@ From `playing = entry` to the end of the function, the body becomes:
         val o = player()
         val cues = FaceCues(tags)
         call = voice.stream(text, expressive = expressive, sink = object : ElevenLabs.Sink {
-            override fun timed(chars: String, atByte: LongArray) {
+            override fun timed(atByte: LongArray) {
                 // OkHttp's thread. A cue is registered before the audio it points into reaches the player,
                 // and guarded by identity: a stopped line's cue must never touch the next line's face.
                 for (c in cues.feed(atByte)) {
