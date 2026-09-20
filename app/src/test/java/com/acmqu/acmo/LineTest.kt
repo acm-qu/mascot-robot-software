@@ -43,6 +43,23 @@ class LineTest {
     }
 
     @Test
+    fun `null, numbers and objects are not text or feelings`() {
+        // Documents intent more than it guards: the JVM's org.json already returns the fallback for a
+        // JSON null, while Android's optString would have returned the word "null" -- which is why
+        // the parser reads strings only.
+        assertRefused("""{"text": null}""", "text is empty")
+        assertRefused("""{"text": 42}""", "text is empty")
+        assertRefused("""{"text": {"a": 1}}""", "text is empty")
+        assertEquals(Expression.HAPPY, Say.parse("""{"text": "x", "feeling": null}""").line.feeling)
+        assertEquals(Expression.HAPPY, Say.parse("""{"text": "x", "feeling": "   "}""").line.feeling)
+    }
+
+    @Test
+    fun `now also accepts the string true, as a hand-written curl might send`() {
+        assertTrue(Say.parse("""{"text": "x", "now": "true"}""").now)
+    }
+
+    @Test
     fun `refuses what cannot be said, with the reason`() {
         assertRefused("""{"text": ""}""", "text is empty")
         assertRefused("""{"text": "   "}""", "text is empty")

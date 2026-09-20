@@ -25,15 +25,17 @@ data class Say(val line: Line, val now: Boolean) {
             } catch (_: JSONException) {
                 throw IllegalArgumentException("the body is not JSON")
             }
-            val text = o.optString("text", "").trim()
+            // Strings only: Android's optString turns a JSON null into the word "null" (the JVM's
+            // returns the fallback), and a number or an object is not a line either.
+            val text = (o.opt("text") as? String ?: "").trim()
             require(text.isNotEmpty()) { "text is empty" }
             require(text.length <= Line.MAX_CHARS) { "text is longer than ${Line.MAX_CHARS} characters" }
-            val label = o.optString("feeling", "")
-            val feeling = if (label.isBlank()) {
+            val label = (o.opt("feeling") as? String ?: "").trim()
+            val feeling = if (label.isEmpty()) {
                 Line.DEFAULT_FEELING
             } else {
                 Expression.fromLabel(label) ?: throw IllegalArgumentException(
-                    "unknown feeling \"${label.trim()}\"; one of ${Expression.entries.joinToString(" ") { it.label }}",
+                    "unknown feeling \"$label\"; one of ${Expression.entries.joinToString(" ") { it.label }}",
                 )
             }
             return Say(Line(text, feeling), o.optBoolean("now", false))
