@@ -16,9 +16,10 @@ import com.google.android.material.button.MaterialButton
 import kotlin.math.roundToInt
 
 /**
- * The hidden settings card: light/dark, media volume, screen brightness and
- * the face's primary colour. Theme and colour persist through [Settings];
- * volume is the device's own; brightness is applied to this window.
+ * The hidden settings card: light/dark, dev mode, the remote console, media
+ * volume, screen brightness and the face's primary colour. Theme, dev mode,
+ * remote and colour persist through [Settings]; volume is the device's own;
+ * brightness is applied to this window.
  */
 class SettingsPanel(
     private val b: ViewSettingsBinding,
@@ -29,11 +30,16 @@ class SettingsPanel(
     private val audio = activity.getSystemService(AudioManager::class.java)
     private val swatchViews = mutableListOf<View>()
 
+    /** What the line under the Remote pills says -- the address, or why there is none. The activity knows. */
+    var remoteStatus: () -> String = { "" }
+
     init {
         b.btnLight.setOnClickListener { settings.dark = false; changed() }
         b.btnDark.setOnClickListener { settings.dark = true; changed() }
         b.btnDevOff.setOnClickListener { settings.devMode = false; changed() }
         b.btnDevOn.setOnClickListener { settings.devMode = true; changed() }
+        b.btnRemoteOff.setOnClickListener { settings.remote = false; changed() }
+        b.btnRemoteOn.setOnClickListener { settings.remote = true; changed() }
 
         b.sliderVolume.addOnChangeListener { _, value, fromUser ->
             if (fromUser) setVolume(value / 100f)
@@ -74,15 +80,19 @@ class SettingsPanel(
         }
         b.settingsShadow.setBackgroundColor(theme.accent)
 
-        for (label in listOf(b.titleText, b.labelTheme, b.labelDev, b.labelVolume, b.labelBrightness, b.labelColour)) {
+        for (label in listOf(b.titleText, b.labelTheme, b.labelDev, b.labelRemote, b.labelVolume, b.labelBrightness, b.labelColour)) {
             label.setTextColor(muted)
         }
         b.hintText.setTextColor(muted)
+        b.remoteAddress.setTextColor(muted)
+        b.remoteAddress.text = remoteStatus()
 
         stylePill(b.btnLight, selected = !settings.dark, theme)
         stylePill(b.btnDark, selected = settings.dark, theme)
         stylePill(b.btnDevOff, selected = !settings.devMode, theme)
         stylePill(b.btnDevOn, selected = settings.devMode, theme)
+        stylePill(b.btnRemoteOff, selected = !settings.remote, theme)
+        stylePill(b.btnRemoteOn, selected = settings.remote, theme)
         stylePill(b.btnClose, selected = false, theme)
 
         b.sliderVolume.value = (currentVolume() * 100f).roundToInt().toFloat().coerceIn(0f, 100f)

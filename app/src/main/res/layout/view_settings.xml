@@ -74,6 +74,39 @@
         </LinearLayout>
 
         <TextView
+            android:id="@+id/labelRemote"
+            style="@style/Eyebrow"
+            android:layout_marginTop="22dp"
+            android:text="@string/settings_remote" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:orientation="horizontal">
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnRemoteOff"
+                style="@style/Pill"
+                android:text="@string/settings_off" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnRemoteOn"
+                style="@style/Pill"
+                android:layout_marginStart="10dp"
+                android:text="@string/settings_on" />
+        </LinearLayout>
+
+        <!-- Where the console should point. Filled in by the activity. -->
+        <TextView
+            android:id="@+id/remoteAddress"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:fontFamily="@font/jetbrains_mono_bold"
+            android:textSize="12sp" />
+
+        <TextView
             android:id="@+id/labelVolume"
             style="@style/Eyebrow"
             android:layout_marginTop="22dp"

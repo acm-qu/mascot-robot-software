@@ -19,6 +19,11 @@ class Settings(context: Context) {
         get() = prefs.getBoolean("dev", false)
         set(v) = prefs.edit().putBoolean("dev", v).apply()
 
+    /** Listens for the remote console (software/remote) on port 8765. */
+    var remote: Boolean
+        get() = prefs.getBoolean("remote", true)
+        set(v) = prefs.edit().putBoolean("remote", v).apply()
+
     /** Index into [SWATCHES]. */
     var swatch: Int
         get() = prefs.getInt("swatch", 0).coerceIn(0, SWATCHES.size - 1)

@@ -13,6 +13,11 @@
     <string name="settings_off">Off</string>
     <string name="settings_on">On</string>
     <string name="settings_close">Close</string>
+    <string name="settings_remote">Remote console</string>
+    <!-- The line under the Remote pills: the address to type into the console, or why there is none. -->
+    <string name="remote_off">off</string>
+    <string name="remote_no_wifi">no Wi-Fi address — on the Mac: adb forward tcp:%1$d tcp:%1$d</string>
+    <string name="remote_failed">could not listen on :%1$d — is another ACMO running?</string>
     <string name="settings_hint">say \"hey ACMO\", then ask\ntap the face to preview expressions\nfive taps top-left opens this panel\ndev mode: type a prompt, or tap the mic to skip the wake word (tap again to stop)</string>
 
     <string name="dev_hint">type a prompt, press send</string>
