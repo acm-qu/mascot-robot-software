@@ -106,7 +106,7 @@ object Tags {
 }
 ```
 
-Pure Kotlin, no Android. The regex is `\[([^\[\]\n]{1,40})\]`. `index` is
+Pure Kotlin, no Android. The regex is `\[([^\[\]\r\n]{1,40})\]`. `index` is
 counted in **code points**, not UTF-16 units, because that is how ElevenLabs
 counts characters (probed: an emoji is one alignment entry).
 
@@ -119,8 +119,8 @@ counts characters (probed: an emoji is one alignment entry).
  * audio each begins. One thread at a time.
  */
 class FaceCues(tags: List<FaceTag>) {
-    /** [chars] are the next characters of the text; [atByte] where each begins in the audio. Returns the cues now known. */
-    fun feed(chars: String, atByte: LongArray): List<Cue>
+    /** [atByte] is where each of the next characters begins in the audio, one entry per code point. Returns the cues now known. */
+    fun feed(atByte: LongArray): List<Cue>
     /** Face tags the timing has not reached yet. */
     val pending: Int
 }
@@ -166,8 +166,8 @@ empty sends nothing to `play`.
 ```kotlin
 interface Sink {
     fun play(pcm: ByteArray)
-    /** The next characters of the text, in order, and the byte of the audio at which each begins. Before the audio they describe. OkHttp's thread. */
-    fun timed(chars: String, atByte: LongArray)
+    /** Where in the audio each of the next characters begins, one entry per code point, before the audio they describe. OkHttp's thread. */
+    fun timed(atByte: LongArray)
     fun finish()
     fun fail(message: String)
 }
@@ -181,10 +181,13 @@ transcript running ahead of its audio; these times are exact.
 `expressive`, `eleven_flash_v2_5` otherwise. The Brain decides
 (`Tags.hasTags`), so the voice package knows nothing about tags.
 
-**Failures.** A line that is not JSON, an object without `audio_base64`, a
-string that does not decode, or `alignment` arrays of different lengths is
-`fail("ElevenLabs: bad chunk")` and the read stops; the rest (non-2xx, timeouts,
-a body that dies, cancel) is exactly as today. The old read loop and its odd-byte
+**Failures.** A line that is not JSON, an `audio_base64` that is not a string or
+does not decode, an `alignment` that is not an object, one without `characters`
+or start times, arrays of different lengths, or a start time that is not a number
+is `fail("ElevenLabs: bad chunk")` and the read stops. An object with no
+`audio_base64` (or `null` there) is timing only. A sink that throws from `play`
+or `timed` also ends in `fail`; `finish` and `fail` must not throw. The rest
+(non-2xx, timeouts, a body that dies, cancel) is exactly as today. The old read loop and its odd-byte
 carry are gone: base64 decodes to whole arrays. `AudioOut.play` keeps its own carry,
 which still guards a decoded chunk of odd length.
 
@@ -199,8 +202,8 @@ face.setExpression(opening)
 val cues = FaceCues(tags)
 val o = player()
 call = voice.stream(entry.line.text, expressive = Tags.hasTags(entry.line.text), sink = object : ElevenLabs.Sink {
-    override fun timed(chars: String, atByte: LongArray) {
-        for (c in cues.feed(chars, atByte)) {
+    override fun timed(atByte: LongArray) {
+        for (c in cues.feed(atByte)) {
             Log.i(TAG, "line #${entry.id}: ${c.feeling.label} at ${c.atByte / AudioOut.BYTES_PER_MS} ms")
             o.cue(c.atByte) { if (playing === entry) face.setExpression(c.feeling) }
         }
