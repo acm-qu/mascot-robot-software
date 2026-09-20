@@ -520,11 +520,11 @@ class Brain(
         previewJob?.cancel()
         mic?.sink = null
         mic?.setMode(MicPipeline.Mode.PAUSED)
+        playing = entry   // first: from here the session's audio is turned away, so a late reply cannot make this line's player
         out?.let {   // a reply that slipped in late; it would swallow this line's audio
             out = null
             it.cancel()
         }
-        playing = entry
         faces = emptyList()
         faceIndex = 0
         lastFailure = null
@@ -541,7 +541,10 @@ class Brain(
         val o = player()
         val cues = FaceCues(tags)
         call = voice.stream(text, expressive = expressive, sink = object : ElevenLabs.Sink {
+            private var fed = 0   // characters timed so far; OkHttp's thread only
+
             override fun timed(atByte: LongArray) {
+                fed += atByte.size
                 // OkHttp's thread. A cue is registered before the audio it points into reaches the player,
                 // and guarded by identity: a stopped line's cue must never touch the next line's face.
                 for (c in cues.feed(atByte)) {
@@ -553,7 +556,10 @@ class Brain(
             override fun play(pcm: ByteArray) = o.play(pcm)
 
             override fun finish() {
-                // Still OkHttp's thread, like feed(): the count is only ever touched there.
+                // Still OkHttp's thread, like feed(): the counts are only ever touched there. ElevenLabs times one entry
+                // per code point; if that ever changes, the cues are off, and this is the line that says so.
+                val expected = text.codePointCount(0, text.length)
+                if (fed != expected) Log.w(TAG, "line #${entry.id}: ElevenLabs timed $fed characters of $expected; the cues may be off")
                 if (cues.pending > 0) Log.w(TAG, "line #${entry.id}: ${cues.pending} face tag(s) never reached")
                 o.finish()
             }

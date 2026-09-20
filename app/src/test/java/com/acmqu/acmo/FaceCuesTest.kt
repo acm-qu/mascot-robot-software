@@ -4,6 +4,7 @@ import com.acmqu.acmo.face.Expression
 import com.acmqu.acmo.remote.Cue
 import com.acmqu.acmo.remote.FaceCues
 import com.acmqu.acmo.remote.FaceTag
+import com.acmqu.acmo.remote.Tags
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -57,5 +58,12 @@ class FaceCuesTest {
         val some = FaceCues(tags)
         assertTrue(some.feed(longArrayOf()).isEmpty())
         assertEquals(1, some.pending)
+    }
+
+    @Test
+    fun `the indexes Tags finds are the ones the timing counts`() {
+        // "Hi 👋 there! [sad] Bye." is 22 code points; the emoji is one entry to ElevenLabs, so the tag is entry 12.
+        val cues = FaceCues(Tags.faces("Hi 👋 there! [sad] Bye."))
+        assertEquals(listOf(Cue(12_000, Expression.SAD)), cues.feed(LongArray(22) { it * 1000L }))
     }
 }
