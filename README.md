@@ -23,6 +23,7 @@ anywhere else previews the next expression.
 
 ```
 software/
+├── remote/                      the operator's console: a Next.js page, not part of the Gradle build
 ├── app/src/main/java/com/acmqu/acmo/
 │   ├── MainActivity.kt          the one screen: kiosk mode, mic permission, the tap gestures
 │   ├── Brain.kt                 the state machine: IDLE → LISTENING → THINKING → SPEAKING → IDLE
@@ -35,14 +36,18 @@ software/
 │   │   ├── WakeWord.kt          the Vosk grammar of "ACMO" sound-alikes and the trigger rule
 │   │   ├── ModelInstaller.kt    unpacks the Vosk model from assets on first run
 │   │   ├── Speaker.kt           Android text-to-speech as one suspending call per sentence
+│   │   ├── ElevenLabs.kt        the console's voice: ElevenLabs text-to-speech, streamed as 24 kHz PCM
 │   │   └── Wav.kt               the 44-byte header Gemini wants
 │   ├── gemini/
 │   │   ├── GeminiClient.kt      transcribe() and reply(), both over the Interactions API
 │   │   ├── Personality.kt       who ACMO is (the system instruction) and the JSON schema of a reply
 │   │   └── Reply.kt             Segment(feeling, text) and the parser
-│   └── settings/
+│   ├── settings/
 │       ├── Settings.kt          SharedPreferences: theme, swatch, brightness
 │       └── SettingsPanel.kt     the card's controls
+│   └── remote/
+│       ├── RemoteServer.kt      the console's way in: POST /say, /stop and GET /state on port 8765
+│       └── Line.kt              a line and its feeling; the wire types
 ├── app/src/main/res/
 │   ├── layout/                  activity_main (the face + hidden card), view_settings (the card)
 │   ├── font/                    JetBrains Mono Bold, the glyph face
@@ -66,6 +71,17 @@ software/
 
    It is baked into the APK as `BuildConfig.GEMINI_API_KEY`, so **do not pass
    built APKs around.** Get a key from [Google AI Studio](https://aistudio.google.com/).
+
+   For the remote console (below), two more lines — the voice id is optional:
+
+   ```
+   ELEVENLABS_API_KEY=sk_...
+   ELEVENLABS_VOICE_ID=cgSgspJ2msm6clMCkdW9
+   ```
+
+   Create that key restricted to text-to-speech, with a credit cap: an ElevenLabs
+   key is billable, and this one ends up inside the APK too. Without the key the
+   app runs as before and the console's sends answer `503`.
 3. **Build.** The first build downloads the 40 MB Vosk model into
    `app/src/main/assets/model-en-us/` (the `downloadVoskModel` task; delete the
    folder to re-fetch). From a terminal:
@@ -110,6 +126,36 @@ software/
   has so far. The button is filled while it listens and dimmed while ACMO is
   thinking or talking. Everything else — the face, the voice, the memory — is
   the same path the wake word takes.
+
+## Remote console
+
+`remote/` is a small Next.js page for a laptop on the same network: type a
+line, pick one of the eight faces, and ACMO says it in an ElevenLabs voice.
+The text is spoken word for word — Gemini is not involved — and streamed:
+`eleven_flash_v2_5` returns raw 24 kHz PCM that goes straight into the same
+player as Gemini's voice, so the first sound comes about half a second after
+Enter (a little more for the first line after a few minutes' quiet).
+
+```sh
+adb forward tcp:8765 tcp:8765           # or type the address from the settings card into the page
+cd remote && npm install && npm run dev # http://localhost:3000
+```
+
+The tablet listens on port 8765 — **Remote console** in the settings card, on
+by default, with the address underneath:
+
+| Route | Body | Reply |
+| --- | --- | --- |
+| `POST /say` | `{"text": "…", "feeling": "happy", "now": false}` | `{"id": 7, "queued": 0}` — `now` cuts off whatever is playing, otherwise the line waits its turn |
+| `POST /stop` | | `{"ok": true}` — be quiet, forget the queue |
+| `GET /state` | | `{"state", "line", "queue", "error"}` |
+
+Lines play back to back with the chosen face; a line ElevenLabs cannot deliver
+gets a sad face for a moment and the queue goes on. A line sent while ACMO is
+in a wake-word conversation waits for it to end; *Say now* ends it.
+
+**There is no authentication:** anyone on the Wi-Fi can make ACMO talk while
+this is on. Switch it off in the settings card at a venue you do not trust.
 
 ## The reply format
 
@@ -177,6 +223,9 @@ model can use (the enum in the schema is built from the same list).
 | `Brain.MEMORY_MS` | How long a conversation is remembered. | 10 min |
 | `FaceView.speakSpeedMs`, `eyeSize`, `blinkEnabled` | The design's props. | 110, 1.0, true |
 | `Speaker` pitch / rate | `setPitch(1.1f)`, `setSpeechRate(1.0f)` in its init. | |
+| `ElevenLabs.MODEL` | The ElevenLabs model for console lines. `eleven_flash_v2_5` is the fastest; `eleven_v3_conversational` is richer and slower. | `eleven_flash_v2_5` |
+| `ElevenLabs.DEFAULT_VOICE_ID` | The voice when `ELEVENLABS_VOICE_ID` is not set. Any id from ElevenLabs' `GET /v1/voices`. | Jessica |
+| `RemoteServer.PORT` | Where the tablet listens for the console. | 8765 |
 
 ## Known limits
 

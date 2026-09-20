@@ -387,3 +387,34 @@ ElevenLabs' alignment data (the WebSocket endpoint), Gemini-written lines,
 mDNS discovery, driving the wheels from a line. The README's *What's here* tree
 still describes the pre-Live files (`GeminiClient`, `Reply`, `Wav`); that
 belongs to the Live migration's own clean-up, not to this change.
+
+## 6. Implementation notes (2026-09-20)
+
+What the code does differently from the sections above, found in review while
+building it. The sections are left as designed; this is the record.
+
+- **§2.2** The `/say` body parser is `Say.parse(json): Say(line, now)`, not
+  `Line.parse`, because `now` lives in the same body. It reads `text` and
+  `feeling` as strings only: Android's `org.json` turns a JSON `null` into the
+  word `"null"` where the JVM's returns the fallback, so `{"text": null}` would
+  have been spoken aloud on the tablet while passing the tests.
+- **§2.3** The error body of a non-2xx reply is read bounded (4 KB) and
+  exception-safe: an `IOException` there escaped OkHttp's callback and the sink
+  heard neither `fail` nor `finish`. `Sink.fail` may follow a cancel that lands
+  mid-read; it is otherwise never called after `cancel()`.
+- **§2.1** The server never gzips (NanoHTTPD would, for browsers, and a gzipped
+  chunked body on the `204` preflight poisons the keep-alive connection); a
+  `Content-Length` over 1 MB is refused with `413` before a byte is read; a
+  request the main thread did not answer within 2 s is abandoned rather than
+  acted on late, and so is one that arrives while the server is stopping. The
+  preflight also carries `Access-Control-Max-Age: 86400`.
+- **§2.4** A console line's watchdog is `10 s + 100 ms × characters` rather than
+  the reply's fixed 90 s, so a 2 000-character line is not cut off. The mic
+  joins whatever state a line left behind if it finished while the wake-word
+  model was still loading.
+- **§2.5** The row is labelled *Remote console*; the address line is in the ink
+  colour, not muted; the card's rows scroll when taller than the screen; the
+  hints read `no Wi-Fi address — on the Mac: adb forward tcp:8765 tcp:8765` and
+  `could not listen on :8765 — is another ACMO running?`.
+- **§4** Commits were finer-grained than the four listed: one per task, plus
+  one follow-up per review that asked for a change.
