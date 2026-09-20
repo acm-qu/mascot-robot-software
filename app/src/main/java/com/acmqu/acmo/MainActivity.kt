@@ -24,8 +24,10 @@ import androidx.core.view.updatePadding
 import androidx.lifecycle.lifecycleScope
 import com.acmqu.acmo.databinding.ActivityMainBinding
 import com.acmqu.acmo.face.Expression
+import com.acmqu.acmo.remote.RemoteServer
 import com.acmqu.acmo.settings.Settings
 import com.acmqu.acmo.settings.SettingsPanel
+import com.acmqu.acmo.voice.ElevenLabs
 import com.acmqu.acmo.voice.ModelInstaller
 import com.acmqu.acmo.voice.Speaker
 import kotlinx.coroutines.launch
@@ -42,6 +44,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var speaker: Speaker
     private lateinit var brain: Brain
     private lateinit var panel: SettingsPanel
+    private lateinit var remote: RemoteServer
 
     private val cornerTaps = ArrayDeque<Long>()
     private var devBarBasePadding = 0
@@ -60,15 +63,25 @@ class MainActivity : AppCompatActivity() {
             onStart = { binding.face.setSpeaking(true) }
             onFinish = { binding.face.setSpeaking(false) }
         }
+        val eleven = if (BuildConfig.ELEVENLABS_API_KEY.isBlank()) null else ElevenLabs(
+            apiKey = BuildConfig.ELEVENLABS_API_KEY,
+            voiceId = BuildConfig.ELEVENLABS_VOICE_ID.ifBlank { ElevenLabs.DEFAULT_VOICE_ID },
+        )
         brain = Brain(
             face = binding.face,
             speaker = speaker,
             apiKey = BuildConfig.GEMINI_API_KEY,
             scope = lifecycleScope,
             apology = getString(R.string.speech_apology),
+            eleven = eleven,
         )
+        remote = RemoteServer(RemoteServer.PORT, brain, onMain = { block -> runOnUiThread { block() } }, hasKey = eleven != null)
         panel = SettingsPanel(binding.settings, this, settings) { applySettings() }
+        panel.remoteStatus = ::remoteStatus
         applySettings()
+        if (eleven == null) {
+            Log.w(TAG, "ELEVENLABS_API_KEY is empty -- the remote console gets 503; add it to local.properties and rebuild")
+        }
 
         setUpKiosk()
         setUpTouch()
@@ -130,8 +143,17 @@ class MainActivity : AppCompatActivity() {
         binding.face.setTheme(theme)
         window.decorView.setBackgroundColor(theme.bg)
         panel.applyBrightness()
+        if (settings.remote) remote.startListening() else remote.stopListening()
         panel.refresh()
         styleDevBar(theme)
+    }
+
+    /** The line under the Remote pills on the settings card: where the console should point. */
+    private fun remoteStatus(): String = when {
+        !settings.remote -> getString(R.string.remote_off)
+        !remote.isAlive -> getString(R.string.remote_failed, RemoteServer.PORT)
+        else -> RemoteServer.localAddress()?.let { "http://$it:${RemoteServer.PORT}" }
+            ?: getString(R.string.remote_no_wifi, RemoteServer.PORT)
     }
 
     private fun showSettings(show: Boolean) {
@@ -263,6 +285,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
+        remote.stopListening()
         brain.stop()
         speaker.shutdown()
         super.onDestroy()

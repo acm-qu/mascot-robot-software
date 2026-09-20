@@ -1,5 +1,7 @@
 package com.acmqu.acmo
 
+import android.os.Handler
+import android.os.Looper
 import android.os.SystemClock
 import android.util.Log
 import com.acmqu.acmo.face.Expression
@@ -7,13 +9,22 @@ import com.acmqu.acmo.face.FaceView
 import com.acmqu.acmo.gemini.LiveSession
 import com.acmqu.acmo.gemini.Personality
 import com.acmqu.acmo.gemini.Sentence
+import com.acmqu.acmo.remote.Entry
+import com.acmqu.acmo.remote.Failure
+import com.acmqu.acmo.remote.Line
+import com.acmqu.acmo.remote.RemoteServer
+import com.acmqu.acmo.remote.Said
+import com.acmqu.acmo.remote.Snapshot
 import com.acmqu.acmo.voice.AudioOut
+import com.acmqu.acmo.voice.ElevenLabs
 import com.acmqu.acmo.voice.MicPipeline
 import com.acmqu.acmo.voice.Speaker
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import okhttp3.Call
 import org.vosk.Model
 
 /**
@@ -30,6 +41,10 @@ import org.vosk.Model
  * One session is kept open across exchanges so that follow-ups remember the
  * conversation; it is dropped after [MEMORY_MS] of quiet. Errors are a sad
  * face and a spoken apology, because the face is the only screen there is.
+ *
+ * The remote console is the other way in: lines an operator typed, spoken in
+ * an ElevenLabs voice ([say]). They queue up and play one after another, or
+ * cut in. A line is SPEAKING like a reply is, with the face the operator chose.
  */
 class Brain(
     private val face: FaceView,
@@ -38,7 +53,9 @@ class Brain(
     private val apiKey: String,
     private val scope: CoroutineScope,
     private val apology: String,
-) : MicPipeline.Listener {
+    /** The console's voice; null when no ElevenLabs key was built in. */
+    private val eleven: ElevenLabs?,
+) : MicPipeline.Listener, RemoteServer.Host {
 
     enum class State { BOOTING, IDLE, LISTENING, THINKING, SPEAKING }
 
@@ -69,11 +86,23 @@ class Brain(
     private val heard = StringBuilder()
     private val said = StringBuilder()
 
+    // Lines from the console: the one playing, and the ones waiting their turn.
+    private val queue = ArrayDeque<Entry>()
+    @Volatile private var playing: Entry? = null   // read on the socket thread too
+    private var call: Call? = null                 // the ElevenLabs stream of [playing]
+    private var nextId = 1
+    private var lastFailure: Failure? = null
+    private val main = Handler(Looper.getMainLooper())
+
     fun start(model: Model) {
         mic = MicPipeline(model, this).also { it.start() }
-        // A typed prompt may already be in flight (BOOTING allows it): then the
-        // microphone just waits its turn instead of resetting the conversation.
-        if (state == State.BOOTING) goIdle() else mic?.setMode(MicPipeline.Mode.PAUSED)
+        // A typed prompt or a remote line may still be in flight, or have come and gone, while
+        // the model loaded (BOOTING allows both): the microphone joins whatever state that left.
+        when (state) {
+            State.BOOTING -> goIdle()
+            State.IDLE -> mic?.setMode(MicPipeline.Mode.WAKE)
+            else -> mic?.setMode(MicPipeline.Mode.PAUSED)
+        }
     }
 
     fun stop() {
@@ -86,6 +115,7 @@ class Brain(
         val o = out
         out = null
         o?.cancel()
+        dropLines()
         closeSession()
         speaker.stop()
         state = State.BOOTING
@@ -100,6 +130,7 @@ class Brain(
             val o = out
             out = null
             o?.cancel()
+            dropLines()
             speaker.stop()
             goIdle()
             mic?.setMode(MicPipeline.Mode.PAUSED)
@@ -267,6 +298,7 @@ class Brain(
         override fun onAudio(pcm: ByteArray, bytesBefore: Long) {
             // Socket thread. Anything arriving while idle is a reply to something ACMO gave up on.
             if (!current()) return
+            if (playing != null) return   // a remote line has the player; the session was closed, this is a straggler
             val st = state
             if (st != State.LISTENING && st != State.THINKING && st != State.SPEAKING) return
             mic?.setMode(MicPipeline.Mode.PAUSED)   // the robot must not hear itself
@@ -347,10 +379,13 @@ class Brain(
             state = State.SPEAKING
             if (faces.isEmpty()) face.setExpression(Expression.HAPPY)   // it spoke without planning faces
         }
+        playing?.let { Log.i(TAG, "line #${it.id} playing") }
         face.setSpeaking(true)
+        // A reply has a fixed limit; a line from the console gets one that fits its length.
+        val limit = playing?.let { LINE_GRACE_MS + LINE_MS_PER_CHAR * it.line.text.length } ?: MAX_SPEAK_MS
         replyJob?.cancel()
         replyJob = scope.launch {
-            delay(MAX_SPEAK_MS)
+            delay(limit)
             if (state == State.SPEAKING && out === o) {
                 Log.w(TAG, "the reply ran long; cutting it off")
                 o.cancel()
@@ -362,9 +397,141 @@ class Brain(
         if (o !== out) return
         out = null
         face.setSpeaking(false)
-        if (state == State.SPEAKING) {
+        if (state != State.SPEAKING) return
+        if (playing != null) {
+            lineEnded()
+        } else {
             lastExchangeAt = SystemClock.elapsedRealtime()
             goIdle()
+        }
+    }
+
+    // ---- lines from the console (RemoteServer.Host, main thread) ----
+
+    override fun say(line: Line, now: Boolean): Said {
+        val entry = Entry(nextId++, line)
+        if (now) {
+            interrupt()
+            queue.addFirst(entry)
+            playNext()
+            return Said(entry.id, 0)
+        }
+        val ahead = queue.size + (if (playing != null) 1 else 0)
+        queue.addLast(entry)
+        if (state == State.IDLE || state == State.BOOTING) playNext()
+        return Said(entry.id, ahead)
+    }
+
+    /** Be quiet: whatever is playing stops, the queue is forgotten, and ACMO waits for its name. */
+    override fun hush() {
+        Log.i(TAG, "hush")
+        interrupt()
+        queue.clear()
+        idle()
+    }
+
+    override fun snapshot(): Snapshot = Snapshot(state, playing, queue.toList(), lastFailure)
+
+    /** Cancels the remote line playing and forgets the ones waiting. */
+    private fun dropLines() {
+        call?.cancel()
+        call = null
+        queue.clear()
+        playing = null
+    }
+
+    /** Cuts off whatever ACMO is doing -- a remote line, or a conversation -- without deciding what comes next. */
+    private fun interrupt() {
+        // A Gemini exchange in flight: listening, thinking, or its voice playing (a remote line's is not it,
+        // and neither is the quiet after a failed one).
+        val conversing = state == State.LISTENING || state == State.THINKING ||
+            (state == State.SPEAKING && out != null && playing == null)
+        listenJob?.cancel()
+        replyJob?.cancel()
+        previewJob?.cancel()
+        mic?.sink = null
+        mic?.setMode(MicPipeline.Mode.PAUSED)
+        val o = out
+        out = null
+        o?.cancel()
+        call?.cancel()
+        call = null
+        speaker.stop()
+        faces = emptyList()
+        faceIndex = 0
+        face.setSpeaking(false)
+        if (conversing) {
+            // Dropping the socket is what keeps the model's late audio out of the player. The
+            // resumption handle survives, so the next "hey ACMO" still remembers the conversation.
+            Log.i(TAG, "interrupting the conversation")
+            closeSession()
+            heard.clear()
+            said.clear()
+        }
+        playing = null
+    }
+
+    /** Speaks the next line from the console, or goes idle when there is none. */
+    private fun playNext() {
+        val entry = queue.removeFirstOrNull() ?: run {
+            idle()
+            return
+        }
+        val voice = eleven ?: run {
+            // Unreachable from the server, which answers 503 without a key.
+            lastFailure = Failure(entry.id, "no ElevenLabs key")
+            idle()
+            return
+        }
+        listenJob?.cancel()
+        replyJob?.cancel()
+        previewJob?.cancel()
+        mic?.sink = null
+        mic?.setMode(MicPipeline.Mode.PAUSED)
+        out?.let {   // never expected; a player from before would swallow this line's audio
+            out = null
+            it.cancel()
+        }
+        playing = entry
+        lastFailure = null
+        state = State.SPEAKING
+        face.setExpression(entry.line.feeling)
+        Log.i(TAG, "line #${entry.id} (${entry.line.feeling.label}): \"${entry.line.text}\"")
+        // The player is made here, on the main thread, so the socket thread only ever feeds this one.
+        val o = player()
+        call = voice.stream(entry.line.text, object : ElevenLabs.Sink {
+            override fun play(pcm: ByteArray) = o.play(pcm)
+            override fun finish() = o.finish()
+            override fun fail(message: String) {
+                main.post { lineFailed(entry, o, message) }
+            }
+        })
+    }
+
+    /** The last byte of the line has been heard. */
+    private fun lineEnded() {
+        val entry = playing ?: return
+        Log.i(TAG, "line #${entry.id} done")
+        playing = null
+        call = null
+        playNext()
+    }
+
+    /** ElevenLabs could not deliver the line: a sad face for a moment, then on with the queue. */
+    private fun lineFailed(entry: Entry, o: AudioOut, message: String) {
+        if (entry !== playing) return
+        Log.e(TAG, "line #${entry.id} failed: $message")
+        lastFailure = Failure(entry.id, message)
+        if (out === o) out = null
+        o.cancel()
+        call = null
+        playing = null
+        face.setSpeaking(false)
+        face.setExpression(Expression.SAD)
+        replyJob?.cancel()
+        replyJob = scope.launch {
+            delay(FAIL_PAUSE_MS)
+            playNext()
         }
     }
 
@@ -380,21 +547,28 @@ class Brain(
         o?.cancel()
         face.setSpeaking(false)
         face.setExpression(Expression.SAD)
-        scope.launch {
+        // Kept in replyJob so a line cutting in can stop the apology from going idle underneath it.
+        replyJob = scope.launch {
             try {
                 speaker.speak(apology, "en")
             } catch (_: Exception) {
             }
-            goIdle()
+            if (isActive) goIdle()
         }
     }
 
+    /** Back to waiting for the wake word -- unless the console has lines waiting, which come first. */
     private fun goIdle() {
+        if (queue.isNotEmpty()) playNext() else idle()
+    }
+
+    private fun idle() {
         listenJob?.cancel()
         replyJob?.cancel()
         state = State.IDLE
         faces = emptyList()
         faceIndex = 0
+        playing = null
         face.setSpeaking(false)
         face.setExpression(Expression.IDLE)
         mic?.sink = null
@@ -425,6 +599,16 @@ class Brain(
 
         /** No reply is this long; if one is, the socket has stopped saying so. */
         const val MAX_SPEAK_MS = 90_000L
+
+        /**
+         * A line from the console may play this long plus [LINE_MS_PER_CHAR] for each of its
+         * characters: speech is about 70 ms a character, so the longest line (2 000) gets 210 s.
+         */
+        const val LINE_GRACE_MS = 10_000L
+        const val LINE_MS_PER_CHAR = 100L
+
+        /** How long the sad face stays after a remote line fails, before the next one. */
+        const val FAIL_PAUSE_MS = 1500L
 
         /**
          * The transcript runs about a second ahead of the audio it describes,
