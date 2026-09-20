@@ -1,6 +1,7 @@
 package com.acmqu.acmo
 
 import android.Manifest
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.res.ColorStateList
 import android.graphics.drawable.GradientDrawable
@@ -23,7 +24,6 @@ import androidx.core.view.updatePadding
 import androidx.lifecycle.lifecycleScope
 import com.acmqu.acmo.databinding.ActivityMainBinding
 import com.acmqu.acmo.face.Expression
-import com.acmqu.acmo.gemini.GeminiClient
 import com.acmqu.acmo.settings.Settings
 import com.acmqu.acmo.settings.SettingsPanel
 import com.acmqu.acmo.voice.ModelInstaller
@@ -63,7 +63,7 @@ class MainActivity : AppCompatActivity() {
         brain = Brain(
             face = binding.face,
             speaker = speaker,
-            gemini = GeminiClient(BuildConfig.GEMINI_API_KEY),
+            apiKey = BuildConfig.GEMINI_API_KEY,
             scope = lifecycleScope,
             apology = getString(R.string.speech_apology),
         )
@@ -84,6 +84,23 @@ class MainActivity : AppCompatActivity() {
         } else {
             requestMic.launch(Manifest.permission.RECORD_AUDIO)
         }
+        takePrompt(intent)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        takePrompt(intent)
+    }
+
+    /**
+     * A prompt handed in by intent goes to the model like a typed one -- the way
+     * to make ACMO talk from a shell:
+     * `adb shell am start -n com.acmqu.acmo/.MainActivity --es prompt "say hi"`.
+     */
+    private fun takePrompt(intent: Intent?) {
+        val prompt = intent?.getStringExtra(EXTRA_PROMPT) ?: return
+        intent.removeExtra(EXTRA_PROMPT)
+        brain.submitText(prompt)
     }
 
     /** Unpacks the wake-word model (a few seconds the first time) and starts listening. */
@@ -253,6 +270,7 @@ class MainActivity : AppCompatActivity() {
 
     companion object {
         private const val TAG = "MainActivity"
+        const val EXTRA_PROMPT = "prompt"
         private const val CORNER = 0.2f
         private const val TAPS_TO_OPEN = 5
         private const val TAP_WINDOW_MS = 2500L

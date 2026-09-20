@@ -9,24 +9,21 @@ import android.util.Log
 import org.json.JSONObject
 import org.vosk.Model
 import org.vosk.Recognizer
-import java.io.ByteArrayOutputStream
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
-import java.util.ArrayDeque
-import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.math.sqrt
 
 /**
  * One microphone thread for the whole app. It reads 16 kHz mono PCM in 100 ms
  * chunks and, depending on the mode, feeds them to the wake-word recogniser,
- * collects them as the prompt, or throws them away.
+ * streams them to the Live session, or throws them away.
  *
  * - WAKE: chunks go to Vosk. When the grammar hears a wake variant the pipeline
- *   flips itself to CAPTURE -- no chunk is dropped -- and calls [Listener.onWake].
- * - CAPTURE: chunks are the prompt. Speech has to begin within [NO_SPEECH_MS];
- *   it ends after [END_SILENCE_MS] of quiet, or at [MAX_PROMPT_MS]. Then
- *   [Listener.onPrompt] with a WAV, or [Listener.onNothingHeard], and PAUSED.
+ *   flips itself to STREAM -- no chunk is dropped -- and calls [Listener.onWake].
+ * - STREAM: chunks go to [sink], which is the Live session; the server decides
+ *   when the person has finished. Locally, if nothing that sounds like speech
+ *   arrives within [NO_SPEECH_MS], [Listener.onNothingHeard] and PAUSED.
  * - PAUSED: chunks are discarded. The robot is thinking or talking, and must
  *   not hear itself.
  *
@@ -37,27 +34,29 @@ class MicPipeline(private val model: Model, private val listener: Listener) {
 
     interface Listener {
         fun onWake()
-        fun onPrompt(wav: ByteArray)
+
+        /** The person started talking after the wake word. */
+        fun onSpeech()
+
         fun onNothingHeard()
         fun onMicError(message: String)
     }
 
-    enum class Mode { WAKE, CAPTURE, PAUSED }
+    enum class Mode { WAKE, STREAM, PAUSED }
+
+    /** Where STREAM chunks go: 100 ms of 16 kHz mono 16-bit PCM at a time, on the mic thread. */
+    @Volatile var sink: ((ByteArray) -> Unit)? = null
 
     private val main = Handler(Looper.getMainLooper())
     private val mode = AtomicReference(Mode.PAUSED)
-    private val finishRequested = AtomicBoolean(false)
     @Volatile private var running = false
     private var thread: Thread? = null
 
     // Everything below is touched only on the mic thread.
     private var noiseFloor = 300.0
-    private val prompt = ByteArrayOutputStream()
-    private val preRoll = ArrayDeque<ByteArray>()
-    private var capturedMs = 0
+    private var streamedMs = 0
     private var speechStarted = false
     private var loudRun = 0
-    private var quietMs = 0
     private var lastHeard = ""
 
     fun start() {
@@ -76,11 +75,6 @@ class MicPipeline(private val model: Model, private val listener: Listener) {
         mode.set(m)
     }
 
-    /** Ends the capture now with whatever was said -- the dev bar's mic button, tapped again. */
-    fun finishCapture() {
-        finishRequested.set(true)
-    }
-
     private fun loop() {
         val record = openRecord() ?: return
         val recognizer = Recognizer(model, SAMPLE_RATE.toFloat(), WakeWord.GRAMMAR)
@@ -95,14 +89,14 @@ class MicPipeline(private val model: Model, private val listener: Listener) {
                 if (m != lastMode) {
                     when (m) {
                         Mode.WAKE -> recognizer.reset()
-                        Mode.CAPTURE -> resetCapture()
+                        Mode.STREAM -> resetStream()
                         Mode.PAUSED -> {}
                     }
                     lastMode = m
                 }
                 when (m) {
                     Mode.WAKE -> wakeStep(recognizer, chunk, n)
-                    Mode.CAPTURE -> captureStep(chunk, n)
+                    Mode.STREAM -> streamStep(chunk, n)
                     Mode.PAUSED -> {}
                 }
             }
@@ -158,7 +152,8 @@ class MicPipeline(private val model: Model, private val listener: Listener) {
         }
         if (WakeWord.matches(text)) {
             recognizer.reset()
-            if (mode.compareAndSet(Mode.WAKE, Mode.CAPTURE)) {
+            if (mode.compareAndSet(Mode.WAKE, Mode.STREAM)) {
+                resetStream()
                 main.post { listener.onWake() }
             }
         }
@@ -169,58 +164,28 @@ class MicPipeline(private val model: Model, private val listener: Listener) {
         noiseFloor = if (r < noiseFloor) noiseFloor * 0.8 + r * 0.2 else noiseFloor * 0.995 + r * 0.005
     }
 
-    // ---- CAPTURE ----
+    // ---- STREAM ----
 
-    private fun resetCapture() {
-        finishRequested.set(false)
-        prompt.reset()
-        preRoll.clear()
-        capturedMs = 0
+    private fun resetStream() {
+        streamedMs = 0
         speechStarted = false
         loudRun = 0
-        quietMs = 0
     }
 
-    private fun captureStep(chunk: ShortArray, n: Int) {
-        val r = rms(chunk, n)
+    private fun streamStep(chunk: ShortArray, n: Int) {
+        sink?.invoke(toBytes(chunk, n))
+        streamedMs += CHUNK_MS
+        if (speechStarted) return
+
         val threshold = (noiseFloor * THRESHOLD_GAIN).coerceIn(MIN_THRESHOLD, MAX_THRESHOLD)
-        capturedMs += CHUNK_MS
-        val bytes = toBytes(chunk, n)
-
-        if (finishRequested.getAndSet(false)) {
-            if (speechStarted) prompt.write(bytes)
-            finish(heard = speechStarted)
-            return
-        }
-
-        if (!speechStarted) {
-            loudRun = if (r > threshold) loudRun + 1 else 0
-            if (loudRun >= 2) {
-                speechStarted = true
-                for (b in preRoll) prompt.write(b)   // the syllable that crossed the line
-                preRoll.clear()
-            } else {
-                preRoll.addLast(bytes)
-                while (preRoll.size > PRE_ROLL_CHUNKS) preRoll.removeFirst()
-                if (capturedMs >= NO_SPEECH_MS) finish(heard = false)
-                return
-            }
-        }
-
-        prompt.write(bytes)
-        quietMs = if (r < threshold * 0.6) quietMs + CHUNK_MS else 0
-        if (quietMs >= END_SILENCE_MS || capturedMs >= MAX_PROMPT_MS) finish(heard = true)
-    }
-
-    private fun finish(heard: Boolean) {
-        mode.set(Mode.PAUSED)
-        if (!heard) {
+        loudRun = if (rms(chunk, n) > threshold) loudRun + 1 else 0
+        if (loudRun >= 2) {
+            speechStarted = true
+            main.post { listener.onSpeech() }
+        } else if (streamedMs >= NO_SPEECH_MS) {
+            mode.set(Mode.PAUSED)
             main.post { listener.onNothingHeard() }
-            return
         }
-        val wav = Wav.pcm16Mono(prompt.toByteArray(), SAMPLE_RATE)
-        Log.d(TAG, "prompt captured: ${capturedMs} ms, ${wav.size} bytes")
-        main.post { listener.onPrompt(wav) }
     }
 
     // ---- helpers ----
@@ -246,13 +211,7 @@ class MicPipeline(private val model: Model, private val listener: Listener) {
         const val CHUNK_MS = 100
 
         /** Speech must start this soon after the wake word, or nothing was heard. */
-        const val NO_SPEECH_MS = 4000
-        /** This much quiet after speech ends the prompt. */
-        const val END_SILENCE_MS = 900
-        /** The longest prompt, whatever is happening. */
-        const val MAX_PROMPT_MS = 12000
-        /** Chunks of near-silence kept from just before speech was detected. */
-        const val PRE_ROLL_CHUNKS = 3
+        const val NO_SPEECH_MS = 5000
 
         /** Speech is this many times the ambient RMS, clamped to a sane band. */
         const val THRESHOLD_GAIN = 3.5

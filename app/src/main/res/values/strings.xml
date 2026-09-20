@@ -13,7 +13,7 @@
     <string name="settings_off">Off</string>
     <string name="settings_on">On</string>
     <string name="settings_close">Close</string>
-    <string name="settings_hint">say \"hey ACMO\", pause, then ask\ntap the face to preview expressions\nfive taps top-left opens this panel\ndev mode: type a prompt, or tap the mic to skip the wake word</string>
+    <string name="settings_hint">say \"hey ACMO\", then ask\ntap the face to preview expressions\nfive taps top-left opens this panel\ndev mode: type a prompt, or tap the mic to skip the wake word (tap again to stop)</string>
 
     <string name="dev_hint">type a prompt, press send</string>
     <string name="dev_mic">Listen now</string>
