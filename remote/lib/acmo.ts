@@ -7,10 +7,28 @@
 export const FEELINGS = ["idle", "surprised", "sad", "happy", "angry", "passionate", "annoyed", "excited"] as const;
 export type Feeling = (typeof FEELINGS)[number];
 
+/**
+ * The words that change the face when written in brackets -- the label first, then three more
+ * ways of saying it. Mirrors Tags.WORDS in the app (remote/Tags.kt), which is the source of truth.
+ * Any other [word] is a voice-only tag: ElevenLabs takes the tone, the face stays.
+ */
+export const TAG_WORDS: Record<Feeling, readonly string[]> = {
+  idle: ["idle"],
+  surprised: ["surprised", "gasps", "shocked", "amazed"],
+  sad: ["sad", "crying", "gloomy", "disappointed"],
+  happy: ["happy", "laughs", "giggles", "cheerful"],
+  angry: ["angry", "shouting", "furious", "growls"],
+  passionate: ["passionate", "loving", "romantic", "dramatic"],
+  annoyed: ["annoyed", "sarcastic", "groans", "frustrated"],
+  excited: ["excited", "thrilled", "enthusiastic", "energetic"],
+};
+
 export type Entry = { id: number; text: string; feeling: Feeling };
 
 export type State = {
   state: "booting" | "idle" | "listening" | "thinking" | "speaking";
+  /** The face on screen right now; during a tagged line it moves. Older tablets do not send it. */
+  face?: Feeling;
   /** The remote line being spoken; null during a wake-word reply, or when quiet. */
   line: Entry | null;
   queue: Entry[];

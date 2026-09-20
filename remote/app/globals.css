@@ -117,6 +117,35 @@ h1 {
   gap: 8px;
 }
 
+/* The selected face's tag words: small, in the eyebrow's voice, so the faces above stay the loud row. */
+.words {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 10px;
+}
+
+.word {
+  font: inherit;
+  font-size: 12px;
+  color: var(--ink);
+  background: transparent;
+  border: 2px solid var(--gray);
+  border-radius: 9999px;
+  padding: 2px 10px;
+  cursor: pointer;
+}
+
+.word:hover,
+.word:focus-visible {
+  border-color: var(--teal);
+  outline: none;
+}
+
+.words .hint {
+  font-size: 12px;
+}
+
 /* Every button on the brand's site is a pill with a 2px ring; selected is filled teal with dark text. */
 .pill {
   font: inherit;

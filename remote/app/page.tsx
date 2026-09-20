@@ -5,6 +5,7 @@ import {
   FEELINGS,
   type Feeling,
   type State,
+  TAG_WORDS,
   normalize,
   say,
   state as fetchState,
@@ -21,7 +22,7 @@ function describe(s: State): string {
     case "thinking":
       return "talking to someone";
     case "speaking":
-      return s.line ? `speaking · ${s.line.feeling}` : "speaking (not a remote line)";
+      return s.line ? `speaking · ${s.face ?? s.line.feeling}` : "speaking (not a remote line)";
     default:
       return s.state;
   }
@@ -111,6 +112,26 @@ export default function Page() {
     }
   }, [base]);
 
+  // A word from the row under the faces, dropped into the line as a tag, at the cursor.
+  const insert = useCallback(
+    (word: string) => {
+      const el = box.current;
+      const tag = `[${word}] `;
+      const start = el?.selectionStart ?? text.length;
+      const end = el?.selectionEnd ?? start;
+      setText(text.slice(0, start) + tag + text.slice(end));
+      // The caret goes after the tag once React has rendered the new value.
+      requestAnimationFrame(() => {
+        if (!el) return;
+        el.focus();
+        el.setSelectionRange(start + tag.length, start + tag.length);
+        el.style.height = "auto";
+        el.style.height = `${el.scrollHeight}px`;
+      });
+    },
+    [text],
+  );
+
   const onKey = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.nativeEvent.isComposing) return; // Enter that commits an IME candidate is not a send
     if (e.key === "Escape") {
@@ -172,11 +193,19 @@ export default function Page() {
             </button>
           ))}
         </div>
+        <div className="words">
+          {TAG_WORDS[feeling].map((w) => (
+            <button key={w} type="button" className="word" onClick={() => insert(w)} title="insert at the cursor">
+              [{w}]
+            </button>
+          ))}
+          <span className="hint">in the line changes the voice and the face; any other [tag] only the voice</span>
+        </div>
         <textarea
           ref={box}
           value={text}
           rows={2}
-          placeholder="What should ACMO say?"
+          placeholder="What should ACMO say? A [tag] changes the tone; a face word changes the face too."
           aria-label="the line"
           onChange={(e) => {
             setText(e.target.value);
