@@ -62,7 +62,7 @@ data class Failure(val id: Int, val message: String) {
 }
 
 /**
- * What `GET /state` reports: [face] is the expression on screen right now (it moves during a
+ * What `GET /state` reports: [face] is the expression the face is making right now (it moves during a
  * tagged line); [line] is the remote line playing, null during a Gemini reply or when quiet.
  */
 data class Snapshot(val state: Brain.State, val face: Expression, val line: Entry?, val queue: List<Entry>, val error: Failure?) {

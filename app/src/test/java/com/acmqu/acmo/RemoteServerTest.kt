@@ -170,6 +170,7 @@ class RemoteServerTest {
         val root = request("GET", "/")
         assertEquals(200, root.code)
         assertTrue(root.body.contains("POST /say"))
+        assertTrue(root.body.contains("\"face\""))
         assertEquals(404, request("GET", "/nothing").code)
         assertEquals(404, request("POST", "/state").code)
         assertEquals("no such route", JSONObject(request("GET", "/nothing").body).getString("error"))

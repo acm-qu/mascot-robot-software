@@ -15,7 +15,7 @@ import java.util.concurrent.atomic.AtomicBoolean
  *
  *   POST /say    {text, feeling, now}  -> {id, queued}                  a line for ACMO to say
  *   POST /stop                         -> {ok}                          be quiet, forget the queue
- *   GET  /state                        -> {state, line, queue, error}   what ACMO is doing
+ *   GET  /state                        -> {state, face, line, queue, error}   what ACMO is doing
  *   GET  /                             -> this, in plain text
  *
  * NanoHTTPD answers each request on its own thread; the one call into the app
@@ -178,7 +178,7 @@ class RemoteServer(
 
               POST /say    {"text": "...", "feeling": "happy", "now": false}  -> {"id": 7, "queued": 0}
               POST /stop                                                    -> {"ok": true}
-              GET  /state                                                   -> {"state", "line", "queue", "error"}
+              GET  /state                                                   -> {"state", "face", "line", "queue", "error"}
 
             feeling: idle surprised sad happy angry passionate annoyed excited (default happy)
             now: true cuts off whatever is playing; false waits its turn.
