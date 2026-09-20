@@ -13,8 +13,8 @@ import java.util.concurrent.atomic.AtomicBoolean
 /**
  * The console's way in: a small HTTP server on the tablet.
  *
- *   POST /say    {text, feeling, now}  -> {id, queued}                  a line for ACMO to say
- *   POST /stop                         -> {ok}                          be quiet, forget the queue
+ *   POST /say    {text, feeling, now}  -> {id, queued}                        a line for ACMO to say
+ *   POST /stop                         -> {ok}                                be quiet, forget the queue
  *   GET  /state                        -> {state, face, line, queue, error}   what ACMO is doing
  *   GET  /                             -> this, in plain text
  *

@@ -14,6 +14,7 @@ class TagsTest {
     @Test
     fun `every label names its face, and so do the extra words`() {
         for (e in Expression.entries) assertEquals(e, Tags.WORDS[e.label])
+        // Change a word here and TAG_WORDS in remote/lib/acmo.ts must change with it: the console mirrors this table.
         assertEquals(Expression.HAPPY, Tags.WORDS["laughs"])
         assertEquals(Expression.HAPPY, Tags.WORDS["giggles"])
         assertEquals(Expression.HAPPY, Tags.WORDS["cheerful"])
@@ -81,6 +82,8 @@ class TagsTest {
         assertFalse(Tags.hasTags("[]"))
         assertTrue(Tags.faces("[sad\nface]").isEmpty())
         assertFalse(Tags.hasTags("[sad\nface]"))
+        assertTrue(Tags.faces("[sad\rface]").isEmpty())
+        assertFalse(Tags.hasTags("[sad\rface]"))
         assertTrue(Tags.faces("[" + "x".repeat(41) + "]").isEmpty())
         assertEquals(listOf(FaceTag("[sad]", 1, Expression.SAD)), Tags.faces("[[sad]]"))
     }
@@ -98,5 +101,12 @@ class TagsTest {
     fun `a repeated tag is reported each time`() {
         val tags = Tags.faces("[sad] one. [sad] two.")
         assertEquals(listOf(0, 11), tags.map { it.index })
+    }
+
+    @Test
+    fun `exactly forty characters is a tag, and adjacent or trailing tags each land`() {
+        assertTrue(Tags.hasTags("[" + "x".repeat(40) + "]"))
+        assertEquals(listOf(0, 5), Tags.faces("[sad][happy]").map { it.index })
+        assertEquals(listOf(FaceTag("[sad]", 4, Expression.SAD)), Tags.faces("Bye [sad]"))
     }
 }

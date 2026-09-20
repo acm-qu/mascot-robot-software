@@ -32,7 +32,7 @@ object Tags {
     }
 
     /** A bracketed word: one to forty characters, no brackets or line breaks inside. */
-    private val TAG = Regex("""\[([^\[\]\n]{1,40})\]""")
+    private val TAG = Regex("""\[([^\[\]\r\n]{1,40})\]""")
 
     /** Whether [text] has any tag at all, face or voice only: such a line goes to the expressive model. */
     fun hasTags(text: String): Boolean = TAG.containsMatchIn(text)

@@ -50,9 +50,12 @@ class FaceCuesTest {
     }
 
     @Test
-    fun `no tags, no cues`() {
-        val cues = FaceCues(emptyList())
-        assertEquals(0, cues.pending)
-        assertTrue(cues.feed(bytes(0, 10)).isEmpty())
+    fun `no tags, no cues -- and an empty feed changes nothing`() {
+        val none = FaceCues(emptyList())
+        assertEquals(0, none.pending)
+        assertTrue(none.feed(bytes(0, 10)).isEmpty())
+        val some = FaceCues(tags)
+        assertTrue(some.feed(longArrayOf()).isEmpty())
+        assertEquals(1, some.pending)
     }
 }

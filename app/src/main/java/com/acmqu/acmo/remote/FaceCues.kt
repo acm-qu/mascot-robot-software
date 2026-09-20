@@ -11,27 +11,31 @@ data class Cue(val atByte: Long, val feeling: Expression)
  * audio each begins -- the start of the tag's `[`, which is the pause before the new tone.
  * One thread at a time.
  *
- * A tag at index 0 is never a cue: the Brain shows that face from the start.
+ * [tags] must be in ascending [FaceTag.index] order, as [Tags.faces] returns them. The offsets
+ * fed must be the line's characters one per code point, in order, the way ElevenLabs counts
+ * them: only the count is checked. A tag at index 0 is never a cue: the Brain shows that face
+ * from the start.
  */
 class FaceCues(tags: List<FaceTag>) {
     private val tags = tags.filter { it.index > 0 }
-    private var timed = 0   // characters timed so far
-    private var next = 0
+    private var timedChars = 0   // characters timed so far
+    private var nextTag = 0
 
     /** Face tags the timing has not reached yet. */
-    val pending: Int get() = tags.size - next
+    val pending: Int get() = tags.size - nextTag
 
     /**
      * [atByte] is where each of the next characters of the text begins in the audio, one entry
      * per character. Returns the cues now known, oldest first, each rounded down to a whole frame.
      */
     fun feed(atByte: LongArray): List<Cue> {
-        val start = timed
-        timed += atByte.size
-        if (next >= tags.size || tags[next].index >= timed) return emptyList()
+        val start = timedChars
+        timedChars += atByte.size
+        // The common chunk: no tag in it, nothing to allocate.
+        if (nextTag >= tags.size || tags[nextTag].index >= timedChars) return emptyList()
         val found = ArrayList<Cue>(1)
-        while (next < tags.size && tags[next].index < timed) {
-            val tag = tags[next++]
+        while (nextTag < tags.size && tags[nextTag].index < timedChars) {
+            val tag = tags[nextTag++]
             found += Cue(atByte[tag.index - start] and 1L.inv(), tag.feeling)
         }
         return found
