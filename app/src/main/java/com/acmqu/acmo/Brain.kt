@@ -94,6 +94,14 @@ class Brain(
     private var lastFailure: Failure? = null
     private val main = Handler(Looper.getMainLooper())
 
+    /**
+     * A Gemini exchange in flight: listening, thinking, or its voice playing. A console
+     * line's voice is not it, and neither is the quiet after a failed one.
+     */
+    private val conversing: Boolean
+        get() = state == State.LISTENING || state == State.THINKING ||
+            (state == State.SPEAKING && out != null && playing == null)
+
     fun start(model: Model) {
         mic = MicPipeline(model, this).also { it.start() }
         // A typed prompt or a remote line may still be in flight, or have come and gone, while
@@ -298,7 +306,7 @@ class Brain(
         override fun onAudio(pcm: ByteArray, bytesBefore: Long) {
             // Socket thread. Anything arriving while idle is a reply to something ACMO gave up on.
             if (!current()) return
-            if (playing != null) return   // a remote line has the player; the session was closed, this is a straggler
+            if (playing != null) return   // a console line has the player; nothing the session sends now is for it
             val st = state
             if (st != State.LISTENING && st != State.THINKING && st != State.SPEAKING) return
             mic?.setMode(MicPipeline.Mode.PAUSED)   // the robot must not hear itself
@@ -329,13 +337,13 @@ class Brain(
             if (said.isNotEmpty()) Log.i(TAG, "said: \"${said.trim()}\"")
             heard.clear()
             said.clear()
-            out?.finish()
+            if (playing == null) out?.finish()   // a console line's player is not the model's to end
         }
 
         override fun onInterrupted() {
             if (!current()) return
             Log.i(TAG, "interrupted")
-            out?.cancel()
+            if (playing == null) out?.cancel()
         }
 
         override fun onGoAway(timeLeftMs: Long) {
@@ -358,7 +366,7 @@ class Brain(
                 mic?.sink = s::sendAudio
                 return
             }
-            if (state == State.LISTENING || state == State.THINKING || state == State.SPEAKING) fail("session lost")
+            if (conversing) fail("session lost")   // a console line playing over an idle session is not a lost reply
         }
     }
 
@@ -387,7 +395,7 @@ class Brain(
         replyJob = scope.launch {
             delay(limit)
             if (state == State.SPEAKING && out === o) {
-                Log.w(TAG, "the reply ran long; cutting it off")
+                Log.w(TAG, "${playing?.let { "line #${it.id}" } ?: "the reply"} ran long; cutting it off")
                 o.cancel()
             }
         }
@@ -442,10 +450,7 @@ class Brain(
 
     /** Cuts off whatever ACMO is doing -- a remote line, or a conversation -- without deciding what comes next. */
     private fun interrupt() {
-        // A Gemini exchange in flight: listening, thinking, or its voice playing (a remote line's is not it,
-        // and neither is the quiet after a failed one).
-        val conversing = state == State.LISTENING || state == State.THINKING ||
-            (state == State.SPEAKING && out != null && playing == null)
+        val wasConversing = conversing   // read before the player and the jobs are gone
         listenJob?.cancel()
         replyJob?.cancel()
         previewJob?.cancel()
@@ -460,7 +465,7 @@ class Brain(
         faces = emptyList()
         faceIndex = 0
         face.setSpeaking(false)
-        if (conversing) {
+        if (wasConversing) {
             // Dropping the socket is what keeps the model's late audio out of the player. The
             // resumption handle survives, so the next "hey ACMO" still remembers the conversation.
             Log.i(TAG, "interrupting the conversation")
@@ -488,11 +493,13 @@ class Brain(
         previewJob?.cancel()
         mic?.sink = null
         mic?.setMode(MicPipeline.Mode.PAUSED)
-        out?.let {   // never expected; a player from before would swallow this line's audio
+        out?.let {   // a reply that slipped in late; it would swallow this line's audio
             out = null
             it.cancel()
         }
         playing = entry
+        faces = emptyList()
+        faceIndex = 0
         lastFailure = null
         state = State.SPEAKING
         face.setExpression(entry.line.feeling)
@@ -513,6 +520,7 @@ class Brain(
         val entry = playing ?: return
         Log.i(TAG, "line #${entry.id} done")
         playing = null
+        call?.cancel()   // a stream still running into a cancelled player (the watchdog, a dead AudioTrack)
         call = null
         playNext()
     }
@@ -602,10 +610,12 @@ class Brain(
 
         /**
          * A line from the console may play this long plus [LINE_MS_PER_CHAR] for each of its
-         * characters: speech is about 70 ms a character, so the longest line (2 000) gets 210 s.
+         * characters. Speech is 70-100 ms a character; the budget is generous because it only
+         * has to catch a stuck player -- a stalled stream is already ended by ElevenLabs' read
+         * timeout. The longest line (2 000 characters) gets 310 s.
          */
         const val LINE_GRACE_MS = 10_000L
-        const val LINE_MS_PER_CHAR = 100L
+        const val LINE_MS_PER_CHAR = 150L
 
         /** How long the sad face stays after a remote line fails, before the next one. */
         const val FAIL_PAUSE_MS = 1500L
