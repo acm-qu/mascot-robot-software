@@ -26,6 +26,10 @@ make sure the browser is listed and on. `adb forward` needs no such permission.
 - This folder is not part of the Gradle build (`settings.gradle.kts` includes
   only `:app`). If Android Studio indexes `node_modules`, right-click the folder
   → *Mark Directory as* → *Excluded*.
+- A word in brackets is a tag for the voice — `[whispers]`, `[laughs]`, `[sad]`.
+  The eight face names and their synonyms (the row under the face pills; click
+  one to insert it) change the face too, right when the voice gets there. A
+  tagged line uses ElevenLabs' v3 model and starts about a second later.
 - There is no authentication: while **Remote console** is on, anyone on the
   same Wi-Fi can make ACMO talk. Switch it off on the tablet's settings card at
   a venue you do not trust.

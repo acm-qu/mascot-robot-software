@@ -36,7 +36,7 @@ software/
 │   │   ├── WakeWord.kt          the Vosk grammar of "ACMO" sound-alikes and the trigger rule
 │   │   ├── ModelInstaller.kt    unpacks the Vosk model from assets on first run
 │   │   ├── Speaker.kt           Android text-to-speech as one suspending call per sentence
-│   │   ├── ElevenLabs.kt        the console's voice: ElevenLabs text-to-speech, streamed as 24 kHz PCM
+│   │   ├── ElevenLabs.kt        the console's voice: ElevenLabs text-to-speech, streamed as 24 kHz PCM with timing
 │   │   └── Wav.kt               the 44-byte header Gemini wants
 │   ├── gemini/
 │   │   ├── GeminiClient.kt      transcribe() and reply(), both over the Interactions API
@@ -47,7 +47,9 @@ software/
 │   │   └── SettingsPanel.kt     the card's controls
 │   └── remote/
 │       ├── RemoteServer.kt      the console's way in: POST /say, /stop and GET /state on port 8765
-│       └── Line.kt              a line and its feeling; the wire types
+│       ├── Line.kt              a line and its feeling; the wire types
+│       ├── Tags.kt              which [words] name a face, and where they sit in a line
+│       └── FaceCues.kt          from ElevenLabs' character timing to "this face at this byte"
 ├── app/src/main/res/
 │   ├── layout/                  activity_main (the face + hidden card), view_settings (the card)
 │   ├── font/                    JetBrains Mono Bold, the glyph face
@@ -135,10 +137,10 @@ software/
 `remote/` is a small Next.js page for a laptop on the same network: type a
 line, pick one of the eight faces, and ACMO says it in an ElevenLabs voice.
 The text is spoken word for word — Gemini is not involved — and streamed:
-`eleven_flash_v2_5` returns raw 24 kHz PCM that goes straight into the same
-player as Gemini's voice. Measured on the Redmi Pad 2: the first sound comes
-0.4 s after Enter on a warm connection, and about 1.5 s for the first line
-after a few minutes' quiet.
+ElevenLabs returns raw 24 kHz PCM, with the moment each character is spoken,
+and it goes straight into the same player as Gemini's voice. Measured on the
+Redmi Pad 2: the first sound comes 0.4 s after Enter on a warm connection with
+the fast model, and about 1.5 s for the first line after a few minutes' quiet.
 
 ```sh
 adb forward tcp:8765 tcp:8765           # or type the address from the settings card into the page
@@ -152,11 +154,34 @@ by default, with the address underneath:
 | --- | --- | --- |
 | `POST /say` | `{"text": "…", "feeling": "happy", "now": false}` | `{"id": 7, "queued": 0}` — `now` cuts off whatever is playing, otherwise the line waits its turn |
 | `POST /stop` | | `{"ok": true}` — be quiet, forget the queue |
-| `GET /state` | | `{"state", "line", "queue", "error"}` |
+| `GET /state` | | `{"state", "face", "line", "queue", "error"}` — `face` is the expression on screen right now |
 
 Lines play back to back with the chosen face; a line ElevenLabs cannot deliver
 gets a sad face for a moment and the queue goes on. A line sent while ACMO is
 in a wake-word conversation waits for it to end; *Say now* ends it.
+
+**Tags.** A word in square brackets is an ElevenLabs v3 *audio tag*: direction
+for the voice, not text to say — `[whispers] Come closer. [laughs] Got you!`
+whispers, then laughs. A line with any tag goes to the expressive `eleven_v3`
+model, which starts about a second later than `eleven_flash_v2_5`; a plain line
+stays on Flash. A tag that names a face changes the face too, at the moment the
+voice gets there, so the face pill is only the face until the first one. Each
+face answers to its name and three more words (the row under the pills in the
+console; click one to insert it):
+
+| Face | Words |
+| --- | --- |
+| happy | happy, laughs, giggles, cheerful |
+| sad | sad, crying, gloomy, disappointed |
+| angry | angry, shouting, furious, growls |
+| annoyed | annoyed, sarcastic, groans, frustrated |
+| surprised | surprised, gasps, shocked, amazed |
+| excited | excited, thrilled, enthusiastic, energetic |
+| passionate | passionate, loving, romantic, dramatic |
+| idle | idle |
+
+Anything else in brackets — `[sighs]`, `[pause]`, `[excited whisper]` — changes
+the tone only. Every tag is sent to ElevenLabs as typed.
 
 **There is no authentication:** anyone on the Wi-Fi can make ACMO talk while
 this is on. Switch it off in the settings card at a venue you do not trust.
@@ -227,7 +252,8 @@ model can use (the enum in the schema is built from the same list).
 | `Brain.MEMORY_MS` | How long a conversation is remembered. | 10 min |
 | `FaceView.speakSpeedMs`, `eyeSize`, `blinkEnabled` | The design's props. | 110, 1.0, true |
 | `Speaker` pitch / rate | `setPitch(1.1f)`, `setSpeechRate(1.0f)` in its init. | |
-| `ElevenLabs.MODEL` | The ElevenLabs model for console lines. `eleven_flash_v2_5` is the fastest; `eleven_v3_conversational` is richer and slower. | `eleven_flash_v2_5` |
+| `ElevenLabs.FAST_MODEL` / `EXPRESSIVE_MODEL` | The model for a plain line and for one with a `[tag]`. Flash starts in under half a second and reads a tag out loud; v3 takes it as direction and starts about a second later. | `eleven_flash_v2_5` / `eleven_v3` |
+| `Tags.WORDS` | The bracketed words that change the face. Add a synonym here, and to `TAG_WORDS` in `remote/lib/acmo.ts` so the console shows it. | the table above |
 | `ElevenLabs.DEFAULT_VOICE_ID` | The voice when `ELEVENLABS_VOICE_ID` is not set. Any id from ElevenLabs' `GET /v1/voices`. | Jessica |
 | `RemoteServer.PORT` | Where the tablet listens for the console. | 8765 |
 
