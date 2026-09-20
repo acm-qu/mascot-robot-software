@@ -31,18 +31,22 @@ class AudioOut(
     private val cues = PriorityQueue<Cue>(compareBy { it.atByte })   // guarded by itself
     @Volatile private var track: AudioTrack? = null
     @Volatile private var cancelled = false
+    private var half: Byte? = null   // an odd byte carried into the next chunk; one producer thread at a time
 
     init {
         Thread(::loop, "acmo-audio-out").start()
     }
 
-    /** Any thread. */
+    /** Any thread, one producer at a time. */
     fun play(pcm: ByteArray) {
         if (cancelled || pcm.isEmpty()) return
-        // Whole frames only: AudioTrack.write never takes a half frame, and the loop below would spin on it.
-        val whole = pcm.size and 1.inv()
-        if (whole != pcm.size) Log.w(TAG, "dropping the odd byte of a ${pcm.size}-byte chunk")
-        if (whole > 0) queue.put(if (whole == pcm.size) pcm else pcm.copyOf(whole))
+        // Whole frames only: AudioTrack.write never takes a half frame, and the loop below would spin on
+        // it. An odd byte is carried into the next chunk -- dropped, it would byte-swap everything after it.
+        val h = half
+        val data = if (h == null) pcm else byteArrayOf(h) + pcm
+        val whole = data.size and 1.inv()
+        half = if (whole < data.size) data[whole] else null
+        if (whole > 0) queue.put(if (whole == data.size) data else data.copyOf(whole))
     }
 
     /** Runs [action] on the main thread when playback reaches [atByte] of this reply. */
