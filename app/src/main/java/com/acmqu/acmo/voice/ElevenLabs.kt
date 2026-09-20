@@ -31,7 +31,10 @@ class ElevenLabs(
     private val http: OkHttpClient = defaultClient,
     baseUrl: String = BASE_URL,
 ) {
-    /** Where the audio goes. Implementations must not throw: an exception here escapes on OkHttp's thread. */
+    /**
+     * Where the audio goes. An exception from [play] or [timed] ends the line in [fail]; [finish] and
+     * [fail] themselves must not throw, as they run outside that guard, on OkHttp's thread.
+     */
     interface Sink {
         /** Some of the audio, in order. OkHttp's thread. */
         fun play(pcm: ByteArray)
