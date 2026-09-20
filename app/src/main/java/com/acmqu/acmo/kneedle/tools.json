@@ -1,0 +1,22 @@
+[
+  {
+    "name": "spin",
+    "description": "the robot will do a spin in place.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+      },
+
+      "required": []
+    }},
+  {
+    "name": "dance",
+    "description": "the robot will dance.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+      },
+      "required": []
+    }
+  }
+]
