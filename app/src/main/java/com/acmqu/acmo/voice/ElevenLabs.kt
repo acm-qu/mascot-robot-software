@@ -42,9 +42,9 @@ class ElevenLabs(
         /**
          * Where in the audio each of the next characters of the text begins, one entry per character
          * as ElevenLabs counts them (a code point), delivered before the audio they describe.
-         * OkHttp's thread. A sink that does not care about timing need not override it.
+         * OkHttp's thread.
          */
-        fun timed(atByte: LongArray) {}
+        fun timed(atByte: LongArray)
 
         /** The whole line has been delivered. */
         fun finish()

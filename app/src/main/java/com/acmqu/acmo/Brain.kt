@@ -10,11 +10,13 @@ import com.acmqu.acmo.gemini.LiveSession
 import com.acmqu.acmo.gemini.Personality
 import com.acmqu.acmo.gemini.Sentence
 import com.acmqu.acmo.remote.Entry
+import com.acmqu.acmo.remote.FaceCues
 import com.acmqu.acmo.remote.Failure
 import com.acmqu.acmo.remote.Line
 import com.acmqu.acmo.remote.RemoteServer
 import com.acmqu.acmo.remote.Said
 import com.acmqu.acmo.remote.Snapshot
+import com.acmqu.acmo.remote.Tags
 import com.acmqu.acmo.voice.AudioOut
 import com.acmqu.acmo.voice.ElevenLabs
 import com.acmqu.acmo.voice.MicPipeline
@@ -527,13 +529,35 @@ class Brain(
         faceIndex = 0
         lastFailure = null
         state = State.SPEAKING
-        face.setExpression(entry.line.feeling)
-        Log.i(TAG, "line #${entry.id} (${entry.line.feeling.label}): \"${entry.line.text}\"")
+        // The operator's face until the first face tag -- or that tag's face, if the line opens with one:
+        // the v3 model takes a second or two to start, and the face should not flip when it does.
+        val text = entry.line.text
+        val tags = Tags.faces(text)
+        val opening = tags.firstOrNull()?.takeIf { it.index == 0 }?.feeling ?: entry.line.feeling
+        val expressive = Tags.hasTags(text)
+        face.setExpression(opening)
+        Log.i(TAG, "line #${entry.id} (${opening.label}${if (expressive) ", expressive" else ""}): \"$text\"")
         // The player is made here, on the main thread, so the socket thread only ever feeds this one.
         val o = player()
-        call = voice.stream(entry.line.text, object : ElevenLabs.Sink {
+        val cues = FaceCues(tags)
+        call = voice.stream(text, expressive = expressive, sink = object : ElevenLabs.Sink {
+            override fun timed(atByte: LongArray) {
+                // OkHttp's thread. A cue is registered before the audio it points into reaches the player,
+                // and guarded by identity: a stopped line's cue must never touch the next line's face.
+                for (c in cues.feed(atByte)) {
+                    Log.i(TAG, "line #${entry.id}: ${c.feeling.label} at ${c.atByte / AudioOut.BYTES_PER_MS} ms")
+                    o.cue(c.atByte) { if (playing === entry) face.setExpression(c.feeling) }
+                }
+            }
+
             override fun play(pcm: ByteArray) = o.play(pcm)
-            override fun finish() = o.finish()
+
+            override fun finish() {
+                // Still OkHttp's thread, like feed(): the count is only ever touched there.
+                if (cues.pending > 0) Log.w(TAG, "line #${entry.id}: ${cues.pending} face tag(s) never reached")
+                o.finish()
+            }
+
             override fun fail(message: String) {
                 main.post { lineFailed(entry, o, message) }
             }
