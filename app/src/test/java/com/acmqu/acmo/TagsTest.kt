@@ -106,7 +106,8 @@ class TagsTest {
     @Test
     fun `exactly forty characters is a tag, and adjacent or trailing tags each land`() {
         assertTrue(Tags.hasTags("[" + "x".repeat(40) + "]"))
-        assertEquals(listOf(0, 5), Tags.faces("[sad][happy]").map { it.index })
+        assertFalse(Tags.hasTags("[" + "x".repeat(41) + "]"))
+        assertEquals(listOf(0 to Expression.SAD, 5 to Expression.HAPPY), Tags.faces("[sad][happy]").map { it.index to it.feeling })
         assertEquals(listOf(FaceTag("[sad]", 4, Expression.SAD)), Tags.faces("Bye [sad]"))
     }
 }
