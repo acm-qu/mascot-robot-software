@@ -1,7 +1,7 @@
 /**
  * The tablet's remote API (RemoteServer.kt in the app): three calls, JSON both
- * ways, CORS open. Failures come back as Error(message) with the server's own
- * wording when it gave one.
+ * ways, CORS open -- and the words the tablet reads as face tags. Failures come
+ * back as Error(message) with the server's own wording when it gave one.
  */
 
 export const FEELINGS = ["idle", "surprised", "sad", "happy", "angry", "passionate", "annoyed", "excited"] as const;

@@ -199,7 +199,10 @@ export default function Page() {
               [{w}]
             </button>
           ))}
-          <span className="hint">in the line changes the voice and the face; any other [tag] only the voice</span>
+          <span className="hint">
+            In the line these change the voice and the face; any other [tag] the voice only. A tagged line starts
+            about a second later.
+          </span>
         </div>
         <textarea
           ref={box}

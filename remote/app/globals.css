@@ -117,7 +117,7 @@ h1 {
   gap: 8px;
 }
 
-/* The selected face's tag words: small, in the eyebrow's voice, so the faces above stay the loud row. */
+/* The selected face's tag words: small buttons, with a hint in the eyebrow's voice, so the faces above stay the loud row. */
 .words {
   display: flex;
   flex-wrap: wrap;
@@ -136,10 +136,14 @@ h1 {
   cursor: pointer;
 }
 
-.word:hover,
+.word:hover {
+  border-color: var(--teal);
+}
+
 .word:focus-visible {
   border-color: var(--teal);
-  outline: none;
+  outline: 2px solid var(--teal);
+  outline-offset: 2px;
 }
 
 .words .hint {
