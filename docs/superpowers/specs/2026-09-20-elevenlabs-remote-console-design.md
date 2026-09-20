@@ -408,8 +408,8 @@ building it. The sections are left as designed; this is the record.
   request the main thread did not answer within 2 s is abandoned rather than
   acted on late, and so is one that arrives while the server is stopping. The
   preflight also carries `Access-Control-Max-Age: 86400`.
-- **§2.4** A console line's watchdog is `10 s + 100 ms × characters` rather than
-  the reply's fixed 90 s, so a 2 000-character line is not cut off. The mic
+- **§2.4** A console line's watchdog is `10 s + 150 ms × characters` rather than
+  the reply's fixed 90 s, so a 2 000-character line (310 s) is not cut off. The mic
   joins whatever state a line left behind if it finished while the wake-word
   model was still loading.
 - **§2.5** The row is labelled *Remote console*; the address line is in the ink
@@ -425,3 +425,7 @@ building it. The sections are left as designed; this is the record.
   to first sound on a warm connection, 1.4 s cold.
 - **§4** Commits were finer-grained than the four listed: one per task, plus
   one follow-up per review that asked for a change.
+- **Added afterwards** (the user's request once everything worked): a
+  *Conversation* Off/On row on the settings card. Off, the microphone stays
+  paused, typed prompts are ignored and a conversation in progress is cut
+  short, so during a scripted show only the console can make ACMO talk.

@@ -94,6 +94,9 @@ class Brain(
     private var lastFailure: Failure? = null
     private val main = Handler(Looper.getMainLooper())
 
+    /** Whether ACMO listens for its name and talks through Gemini at all; see [setConversation]. */
+    private var conversation = true
+
     /**
      * A Gemini exchange in flight: listening, thinking, or its voice playing. A console
      * line's voice is not it, and neither is the quiet after a failed one.
@@ -108,10 +111,32 @@ class Brain(
         // the model loaded (BOOTING allows both): the microphone joins whatever state that left.
         when (state) {
             State.BOOTING -> goIdle()
-            State.IDLE -> mic?.setMode(MicPipeline.Mode.WAKE)
+            State.IDLE -> mic?.setMode(idleMode())
             else -> mic?.setMode(MicPipeline.Mode.PAUSED)
         }
     }
+
+    /**
+     * Listening for "hey ACMO" and talking through Gemini can be switched off -- for a scripted
+     * show, when only the console should make ACMO talk. Off, the microphone stays paused, typed
+     * prompts are ignored, and a conversation in progress is cut short.
+     */
+    fun setConversation(on: Boolean) {
+        if (conversation == on) return
+        conversation = on
+        Log.i(TAG, if (on) "conversation on" else "conversation off")
+        when {
+            on -> if (state == State.IDLE) mic?.setMode(MicPipeline.Mode.WAKE)
+            conversing -> {
+                interrupt()
+                goIdle()
+            }
+            state == State.IDLE -> mic?.setMode(MicPipeline.Mode.PAUSED)
+        }
+    }
+
+    /** What the microphone does while ACMO waits: listens for its name, or nothing. */
+    private fun idleMode() = if (conversation) MicPipeline.Mode.WAKE else MicPipeline.Mode.PAUSED
 
     fun stop() {
         listenJob?.cancel()
@@ -133,7 +158,7 @@ class Brain(
     fun setForeground(foreground: Boolean) {
         if (mic == null) return
         if (foreground) {
-            if (state == State.IDLE) mic?.setMode(MicPipeline.Mode.WAKE)
+            if (state == State.IDLE) mic?.setMode(idleMode())
         } else {
             val o = out
             out = null
@@ -148,7 +173,7 @@ class Brain(
 
     /** Dev mode: listen right now, no wake word needed -- or, if already listening, stop. */
     fun toggleListening() {
-        if (mic == null) return   // no microphone yet (permission, model)
+        if (mic == null || !conversation) return   // no microphone yet (permission, model), or nothing to listen for
         when (state) {
             State.IDLE -> listen()
             State.LISTENING -> {
@@ -162,7 +187,7 @@ class Brain(
     /** Dev mode: a typed prompt, straight to the model. */
     fun submitText(text: String) {
         val prompt = text.trim()
-        if (prompt.isEmpty()) return
+        if (prompt.isEmpty() || !conversation) return
         // BOOTING is allowed on purpose: a typed prompt is the one way to talk to
         // ACMO on a device with no microphone, or before the model has loaded.
         if (state != State.IDLE && state != State.LISTENING && state != State.BOOTING) return
@@ -190,7 +215,7 @@ class Brain(
     // ---- MicPipeline.Listener (main thread) ----
 
     override fun onWake() {
-        if (state != State.IDLE) {
+        if (state != State.IDLE || !conversation) {
             // The mic flipped itself to STREAM; this state does not want that.
             mic?.setMode(MicPipeline.Mode.PAUSED)
             return
@@ -205,7 +230,7 @@ class Brain(
     override fun onNothingHeard() {
         when (state) {
             State.LISTENING -> shrug()
-            State.IDLE -> mic?.setMode(MicPipeline.Mode.WAKE)
+            State.IDLE -> mic?.setMode(idleMode())
             else -> {}
         }
     }
@@ -580,7 +605,7 @@ class Brain(
         face.setSpeaking(false)
         face.setExpression(Expression.IDLE)
         mic?.sink = null
-        mic?.setMode(MicPipeline.Mode.WAKE)
+        mic?.setMode(idleMode())
         if (sessionExpiring) closeSession()
         forgetJob?.cancel()
         forgetJob = scope.launch {

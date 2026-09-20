@@ -60,6 +60,30 @@
                 </LinearLayout>
 
                 <TextView
+                    android:id="@+id/labelConversation"
+                    style="@style/Eyebrow"
+                    android:layout_marginTop="22dp"
+                    android:text="@string/settings_conversation" />
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:orientation="horizontal">
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnConversationOff"
+                        style="@style/Pill"
+                        android:text="@string/settings_off" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnConversationOn"
+                        style="@style/Pill"
+                        android:layout_marginStart="10dp"
+                        android:text="@string/settings_on" />
+                </LinearLayout>
+
+                <TextView
                     android:id="@+id/labelDev"
                     style="@style/Eyebrow"
                     android:layout_marginTop="22dp"

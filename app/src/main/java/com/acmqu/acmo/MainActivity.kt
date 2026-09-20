@@ -143,6 +143,7 @@ class MainActivity : AppCompatActivity() {
         binding.face.setTheme(theme)
         window.decorView.setBackgroundColor(theme.bg)
         panel.applyBrightness()
+        brain.setConversation(settings.conversation)
         if (settings.remote) remote.startListening() else remote.stopListening()
         panel.refresh()
         styleDevBar(theme)
@@ -196,6 +197,9 @@ class MainActivity : AppCompatActivity() {
         binding.devBar.visibility = if (settings.devMode) View.VISIBLE else View.GONE
         binding.devInput.setTextColor(theme.ink)
         binding.devInput.setHintTextColor(0xFF706D70.toInt())
+        // Typed prompts go to Gemini, so they are off with the conversation.
+        binding.devInput.isEnabled = settings.conversation
+        binding.devInput.alpha = if (settings.conversation) 1f else 0.4f
         binding.devInput.background = GradientDrawable().apply {
             cornerRadius = 9999f
             setColor(0x00000000)
@@ -210,7 +214,8 @@ class MainActivity : AppCompatActivity() {
         val listening = state == Brain.State.LISTENING
         panel.stylePill(binding.devMic, selected = listening, theme)
         binding.devMic.iconTint = ColorStateList.valueOf(if (listening) 0xFF010000.toInt() else theme.ink)
-        val busy = state == Brain.State.THINKING || state == Brain.State.SPEAKING || state == Brain.State.BOOTING
+        val busy = state == Brain.State.THINKING || state == Brain.State.SPEAKING || state == Brain.State.BOOTING ||
+            !settings.conversation
         binding.devMic.isEnabled = !busy
         binding.devMic.alpha = if (busy) 0.4f else 1f
     }

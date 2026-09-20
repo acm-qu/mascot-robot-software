@@ -9,6 +9,7 @@
     <string name="settings_volume">Volume</string>
     <string name="settings_brightness">Brightness</string>
     <string name="settings_colour">Primary colour</string>
+    <string name="settings_conversation">Conversation</string>
     <string name="settings_dev">Dev mode</string>
     <string name="settings_off">Off</string>
     <string name="settings_on">On</string>

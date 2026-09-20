@@ -16,8 +16,8 @@ eight expressions.
 ```
 
 Nothing but the face is ever on screen. Five taps in the top-left corner open a
-settings card (light/dark, dev mode, volume, brightness, primary colour); a tap
-anywhere else previews the next expression.
+settings card (light/dark, conversation, dev mode, remote console, volume,
+brightness, primary colour); a tap anywhere else previews the next expression.
 
 ## What's here
 
@@ -43,7 +43,7 @@ software/
 │   │   ├── Personality.kt       who ACMO is (the system instruction) and the JSON schema of a reply
 │   │   └── Reply.kt             Segment(feeling, text) and the parser
 │   ├── settings/
-│   │   ├── Settings.kt          SharedPreferences: theme, swatch, brightness
+│   │   ├── Settings.kt          SharedPreferences: theme, conversation, dev mode, remote, swatch, brightness
 │   │   └── SettingsPanel.kt     the card's controls
 │   └── remote/
 │       ├── RemoteServer.kt      the console's way in: POST /say, /stop and GET /state on port 8765
@@ -54,7 +54,7 @@ software/
 │   └── values/, drawable/, mipmap-*/
 ├── app/src/main/assets/model-en-us/   the Vosk model — downloaded at build time, not in git
 ├── app/src/test/                unit tests for the reply parser, the wake trigger and the WAV header
-├── app/build.gradle.kts         BuildConfig.GEMINI_API_KEY from local.properties; the model download task
+├── app/build.gradle.kts         the API keys from local.properties into BuildConfig; the model download task
 ├── gradle/libs.versions.toml    every version pin
 └── NOTICE.md                    third-party licenses
 ```
@@ -115,7 +115,10 @@ software/
 - **Tap the face** (while idle) to preview the next expression; it reverts after
   four seconds.
 - **Five taps in the top-left corner** within 2.5 s open settings. **Theme** is
-  the face's own light/dark switch. **Volume** is the tablet's media volume,
+  the face's own light/dark switch. **Conversation** is the wake word and Gemini:
+  switch it *Off* for a scripted show, and ACMO ignores its name (the microphone
+  stays paused, typed prompts are ignored, a conversation in progress is cut
+  short) while the remote console keeps working. **Volume** is the tablet's media volume,
   which is what the voice uses. **Brightness** is this window's. **Primary
   colour** recolours the cheeks, badge and tear — the brand teal by default,
   then the department colours from the ACM QU design system.
@@ -243,7 +246,9 @@ model can use (the enum in the schema is built from the same list).
 - **The wheels are not wired in yet.** The ESP32 firmware in the hardware repo
   already serves `GET /move?name=spin_right` on its own Wi-Fi network; calling
   it from `Brain` when a feeling warrants a move is the natural next step.
-- Verified by compiling and by unit tests only — it has not yet run on a tablet.
+- The remote console and the Live conversation were exercised on the Redmi Pad 2
+  on 2026-09-20; nothing has yet been left running long enough to see whether
+  HyperOS kills the microphone thread.
 
 ## Toolchain
 

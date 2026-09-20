@@ -16,10 +16,10 @@ import com.google.android.material.button.MaterialButton
 import kotlin.math.roundToInt
 
 /**
- * The hidden settings card: light/dark, dev mode, the remote console, media
- * volume, screen brightness and the face's primary colour. Theme, dev mode,
- * remote and colour persist through [Settings]; volume is the device's own;
- * brightness is applied to this window.
+ * The hidden settings card: light/dark, the conversation, dev mode, the remote
+ * console, media volume, screen brightness and the face's primary colour. All
+ * but volume and brightness persist through [Settings]; volume is the device's
+ * own; brightness is applied to this window.
  */
 class SettingsPanel(
     private val b: ViewSettingsBinding,
@@ -36,6 +36,8 @@ class SettingsPanel(
     init {
         b.btnLight.setOnClickListener { settings.dark = false; changed() }
         b.btnDark.setOnClickListener { settings.dark = true; changed() }
+        b.btnConversationOff.setOnClickListener { settings.conversation = false; changed() }
+        b.btnConversationOn.setOnClickListener { settings.conversation = true; changed() }
         b.btnDevOff.setOnClickListener { settings.devMode = false; changed() }
         b.btnDevOn.setOnClickListener { settings.devMode = true; changed() }
         b.btnRemoteOff.setOnClickListener { settings.remote = false; changed() }
@@ -80,7 +82,9 @@ class SettingsPanel(
         }
         b.settingsShadow.setBackgroundColor(theme.accent)
 
-        for (label in listOf(b.titleText, b.labelTheme, b.labelDev, b.labelRemote, b.labelVolume, b.labelBrightness, b.labelColour)) {
+        for (label in listOf(
+            b.titleText, b.labelTheme, b.labelConversation, b.labelDev, b.labelRemote, b.labelVolume, b.labelBrightness, b.labelColour,
+        )) {
             label.setTextColor(muted)
         }
         b.hintText.setTextColor(muted)
@@ -89,6 +93,8 @@ class SettingsPanel(
 
         stylePill(b.btnLight, selected = !settings.dark, theme)
         stylePill(b.btnDark, selected = settings.dark, theme)
+        stylePill(b.btnConversationOff, selected = !settings.conversation, theme)
+        stylePill(b.btnConversationOn, selected = settings.conversation, theme)
         stylePill(b.btnDevOff, selected = !settings.devMode, theme)
         stylePill(b.btnDevOn, selected = settings.devMode, theme)
         stylePill(b.btnRemoteOff, selected = !settings.remote, theme)

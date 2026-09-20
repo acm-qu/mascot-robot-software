@@ -14,6 +14,14 @@ class Settings(context: Context) {
         get() = prefs.getBoolean("dark", false)
         set(v) = prefs.edit().putBoolean("dark", v).apply()
 
+    /**
+     * Listens for "hey ACMO" and talks through Gemini. Off, the microphone stays paused and
+     * only the remote console can make ACMO talk -- for a scripted show.
+     */
+    var conversation: Boolean
+        get() = prefs.getBoolean("conversation", true)
+        set(v) = prefs.edit().putBoolean("conversation", v).apply()
+
     /** Shows the text box and mic button along the bottom of the face. */
     var devMode: Boolean
         get() = prefs.getBoolean("dev", false)
