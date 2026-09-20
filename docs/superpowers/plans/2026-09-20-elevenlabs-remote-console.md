@@ -761,8 +761,9 @@ class RemoteServerTest {
         val code = c.responseCode
         val stream = if (code < 400) c.inputStream else c.errorStream
         val text = stream?.bufferedReader(Charsets.UTF_8)?.readText().orEmpty()
-        val headers = listOf("Access-Control-Allow-Origin", "Access-Control-Allow-Methods", "Access-Control-Allow-Headers")
-            .associateWith { c.getHeaderField(it) }
+        val headers = listOf(
+            "Access-Control-Allow-Origin", "Access-Control-Allow-Methods", "Access-Control-Allow-Headers", "Access-Control-Max-Age",
+        ).associateWith { c.getHeaderField(it) }
         c.disconnect()
         return Reply(code, text, headers)
     }
@@ -852,6 +853,7 @@ class RemoteServerTest {
         assertEquals("*", preflight.headers["Access-Control-Allow-Origin"])
         assertEquals("GET, POST, OPTIONS", preflight.headers["Access-Control-Allow-Methods"])
         assertEquals("Content-Type", preflight.headers["Access-Control-Allow-Headers"])
+        assertEquals("86400", preflight.headers["Access-Control-Max-Age"])
         assertEquals("*", request("GET", "/state").headers["Access-Control-Allow-Origin"])
         assertEquals("*", request("GET", "/nothing").headers["Access-Control-Allow-Origin"])
     }
@@ -958,6 +960,8 @@ class RemoteServer(
         response.addHeader("Access-Control-Allow-Origin", "*")
         response.addHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
         response.addHeader("Access-Control-Allow-Headers", "Content-Type")
+        // A JSON POST is preflighted with OPTIONS; this makes it once a day, not once a line.
+        response.addHeader("Access-Control-Max-Age", "86400")
         return response
     }
 
@@ -1237,7 +1241,7 @@ No JVM test: `Brain` is Android through and through (`FaceView`, `AudioOut`). Ta
 
 - [ ] **Step 1: Replace `Brain.kt` with this**
 
-The changes against the current file: the `eleven` constructor parameter and the `RemoteServer.Host` interface; the queue fields; `dropLines()` used by `stop()` and `setForeground(false)`; the `playing != null` guard in `onAudio`; `onSpeechStart` logging a line; `onSpeechEnd` ending a line instead of the conversation; `fail()` keeping its apology in `replyJob` and going idle only if still active; `goIdle()` split into `goIdle()` (drains the queue) and `idle()` (the old body); and the whole "lines from the console" section. Everything else is unchanged.
+The changes against the current file: the `eleven` constructor parameter and the `RemoteServer.Host` interface; the queue fields; `start(model)` putting the mic in WAKE when a remote line finished during BOOTING (before, it stayed PAUSED for good); `dropLines()` used by `stop()` and `setForeground(false)`; the `playing != null` guard in `onAudio`; `onSpeechStart` logging a line; `onSpeechEnd` ending a line instead of the conversation; `fail()` keeping its apology in `replyJob` and going idle only if still active; `goIdle()` split into `goIdle()` (drains the queue) and `idle()` (the old body); and the whole "lines from the console" section. Everything else is unchanged.
 
 ```kotlin
 package com.acmqu.acmo
@@ -1338,9 +1342,13 @@ class Brain(
 
     fun start(model: Model) {
         mic = MicPipeline(model, this).also { it.start() }
-        // A typed prompt or a remote line may already be in flight (BOOTING allows it): then
-        // the microphone just waits its turn instead of resetting the conversation.
-        if (state == State.BOOTING) goIdle() else mic?.setMode(MicPipeline.Mode.PAUSED)
+        // A typed prompt or a remote line may still be in flight, or have come and gone, while
+        // the model loaded (BOOTING allows both): the microphone joins whatever state that left.
+        when (state) {
+            State.BOOTING -> goIdle()
+            State.IDLE -> mic?.setMode(MicPipeline.Mode.WAKE)
+            else -> mic?.setMode(MicPipeline.Mode.PAUSED)
+        }
     }
 
     fun stop() {
@@ -2020,7 +2028,7 @@ curl -s -X POST localhost:8765/say -H 'Content-Type: application/json' -d '{"tex
 curl -s -X POST localhost:8765/say -H 'Content-Type: application/json' -d '{"text":"x","feeling":"smug"}'
 ```
 
-Expected: `{"error":"text is empty"}` and `{"error":"unknown feeling \"smug\"; one of ..."}` — both HTTP 400 (`curl -i` shows it). To see the failure path end to end, temporarily set `ELEVENLABS_VOICE_ID=nonsense` in `local.properties`, rebuild and reinstall, send a line: the face goes sad for 1.5 s and `/state` shows `"error":{"id":...,"message":"ElevenLabs 404: ..."}` (or `400`, whichever ElevenLabs answers for an unknown voice — note the actual text). **Remove the bad voice id, rebuild and reinstall.**
+Expected: `{"error":"text is empty"}` and `{"error":"unknown feeling \"smug\"; one of ..."}` — both HTTP 400 (`curl -i` shows it). To see the failure path end to end, **turn the tablet's Wi-Fi off** (USB adb and the `adb forward` keep working) and send a line: the face goes sad for 1.5 s, then idle, and `/state` shows `"error":{"id":...,"message":"ElevenLabs: Unable to resolve host ..."}` (note the actual text). Queue two lines while offline: both fail in turn, 1.5 s apart, and the queue ends empty. **Turn Wi-Fi back on** and send one more line to see it recover.
 
 Then say **"hey ACMO"** and ask something: the wake-word conversation must work as before, and a line sent while ACMO is *listening* must wait (`queued` counts it) and play after the reply. Finally, five taps in the top-left corner: the card shows the **Remote console** row, *On* selected, and `http://<tablet-ip>:8765` underneath (or the `adb forward` hint when the tablet is on USB only). Check the card still fits on the screen; if the *Close* button is cut off at the bottom, wrap the `settingsCard` LinearLayout's contents in a `ScrollView` (`android:layout_height="wrap_content"`, `android:fillViewport="true"`) and rebuild.
 
