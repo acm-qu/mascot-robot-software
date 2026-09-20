@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  DEFAULT_ADDRESS,
   FEELINGS,
   type Feeling,
   type State,
@@ -11,10 +10,10 @@ import {
   state as fetchState,
   stop,
 } from "@/lib/acmo";
+import { storeAddress, useIsMac, useStoredAddress } from "@/lib/browser";
 
 /** How often the tablet is asked what it is doing. */
 const POLL_MS = 500;
-const ADDRESS_KEY = "acmo.address";
 
 function describe(s: State): string {
   switch (s.state) {
@@ -29,27 +28,20 @@ function describe(s: State): string {
 }
 
 export default function Page() {
-  // null until localStorage has been read, so the default is never written over a saved address.
-  const [address, setAddress] = useState<string | null>(null);
+  const address = useStoredAddress();
   const [feeling, setFeeling] = useState<Feeling>("happy");
   const [text, setText] = useState("");
   const [status, setStatus] = useState<State | null>(null);
   const [reachable, setReachable] = useState<boolean | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
-  const [mac, setMac] = useState(true);
   const box = useRef<HTMLTextAreaElement>(null);
   const polling = useRef(false);
+  const mac = useIsMac();
   const base = address === null ? null : normalize(address);
 
   useEffect(() => {
-    setAddress(window.localStorage.getItem(ADDRESS_KEY) ?? DEFAULT_ADDRESS);
-    setMac(/Mac|iPhone|iPad/.test(navigator.platform));
     box.current?.focus();
   }, []);
-
-  useEffect(() => {
-    if (address !== null) window.localStorage.setItem(ADDRESS_KEY, address);
-  }, [address]);
 
   // Ask the tablet what it is doing, twice a second; a slow answer is not asked over.
   useEffect(() => {
@@ -135,7 +127,7 @@ export default function Page() {
           />
           <input
             value={address ?? ""}
-            onChange={(e) => setAddress(e.target.value)}
+            onChange={(e) => storeAddress(e.target.value)}
             spellCheck={false}
             aria-label="tablet address"
           />
