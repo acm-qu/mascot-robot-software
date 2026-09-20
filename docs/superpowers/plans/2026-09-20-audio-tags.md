@@ -127,7 +127,7 @@ class TagsTest {
     }
 
     @Test
-    fun `broken brackets are text; nested ones leave the inner pair as the tag`() {
+    fun `broken brackets are text -- nested ones leave the inner pair as the tag`() {
         assertTrue(Tags.faces("[sad").isEmpty())
         assertTrue(Tags.faces("sad]").isEmpty())
         assertTrue(Tags.faces("[]").isEmpty())
@@ -257,7 +257,7 @@ class FaceCuesTest {
     private fun bytes(from: Int, n: Int) = LongArray(n) { (from + it) * 1000L }
 
     @Test
-    fun `the tag at index 0 is never a cue; the next one is, once its character is timed`() {
+    fun `the tag at index 0 is never a cue -- the next one is, once its character is timed`() {
         val cues = FaceCues(tags)
         assertEquals(1, cues.pending)
         assertEquals(emptyList<Cue>(), cues.feed(bytes(0, 18)))   // characters 0..17: the tag at 18 is not timed yet
