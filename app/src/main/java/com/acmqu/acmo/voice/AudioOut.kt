@@ -31,6 +31,7 @@ class AudioOut(
     private val cues = PriorityQueue<Cue>(compareBy { it.atByte })   // guarded by itself
     @Volatile private var track: AudioTrack? = null
     @Volatile private var cancelled = false
+    private var startedAt = 0L   // uptime when the track started; the audio thread's
     private var half: Byte? = null   // an odd byte carried into the next chunk; one producer thread at a time
 
     init {
@@ -94,6 +95,7 @@ class AudioOut(
                     started = true
                     // Started with data in hand, so the track does not run empty while the first bytes are on their way.
                     t.play()
+                    startedAt = SystemClock.uptimeMillis()
                     main.post { onStart(this) }
                 }
                 var off = 0
@@ -118,6 +120,9 @@ class AudioOut(
         } catch (e: Exception) {
             if (!cancelled) Log.w(TAG, "playback ended early", e)
         } finally {
+            // Read before the release: a released track has no position to give.
+            val heard = runCatching { played(t) / BYTES_PER_MS }.getOrNull()
+            val underruns = runCatching { t.underrunCount }.getOrNull()
             try {
                 t.pause()
                 t.flush()
@@ -127,6 +132,7 @@ class AudioOut(
             t.release()
             track = null
             synchronized(cues) { cues.clear() }
+            Log.d(TAG, "played $heard of ${written / BYTES_PER_MS} ms; underruns $underruns")
             main.post { onFinish(this) }
         }
     }
@@ -138,6 +144,7 @@ class AudioOut(
         val pos = played(t)
         while (true) {
             val due = synchronized(cues) { cues.peek()?.takeIf { it.atByte <= pos }?.also { cues.poll() } } ?: break
+            Log.d(TAG, "cue at ${due.atByte / BYTES_PER_MS} ms fires: head ${pos / BYTES_PER_MS} ms, ${SystemClock.uptimeMillis() - startedAt} ms after start")
             main.post(due.action)
         }
     }
