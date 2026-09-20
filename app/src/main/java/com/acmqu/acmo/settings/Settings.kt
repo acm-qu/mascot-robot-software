@@ -19,7 +19,10 @@ class Settings(context: Context) {
         get() = prefs.getBoolean("dev", false)
         set(v) = prefs.edit().putBoolean("dev", v).apply()
 
-    /** Listens for the remote console (software/remote) on port 8765. */
+    /**
+     * Listens for the remote console (software/remote) on [com.acmqu.acmo.remote.RemoteServer.PORT].
+     * On by default, and unauthenticated: whoever is on the Wi-Fi can make ACMO talk while it is on.
+     */
     var remote: Boolean
         get() = prefs.getBoolean("remote", true)
         set(v) = prefs.edit().putBoolean("remote", v).apply()

@@ -20,146 +20,158 @@
         android:orientation="vertical"
         android:padding="28dp">
 
-        <TextView
-            android:id="@+id/titleText"
-            style="@style/Eyebrow"
-            android:text="@string/settings_title" />
-
-        <TextView
-            android:id="@+id/labelTheme"
-            style="@style/Eyebrow"
-            android:layout_marginTop="22dp"
-            android:text="@string/settings_theme" />
-
-        <LinearLayout
+        <!-- The rows scroll when the card is taller than the screen; the border and padding stay put. -->
+        <ScrollView
             android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:orientation="horizontal">
+            android:layout_height="wrap_content">
 
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/btnLight"
-                style="@style/Pill"
-                android:text="@string/settings_light" />
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical">
 
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/btnDark"
-                style="@style/Pill"
-                android:layout_marginStart="10dp"
-                android:text="@string/settings_dark" />
-        </LinearLayout>
+                <TextView
+                    android:id="@+id/titleText"
+                    style="@style/Eyebrow"
+                    android:text="@string/settings_title" />
 
-        <TextView
-            android:id="@+id/labelDev"
-            style="@style/Eyebrow"
-            android:layout_marginTop="22dp"
-            android:text="@string/settings_dev" />
+                <TextView
+                    android:id="@+id/labelTheme"
+                    style="@style/Eyebrow"
+                    android:layout_marginTop="22dp"
+                    android:text="@string/settings_theme" />
 
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:orientation="horizontal">
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:orientation="horizontal">
 
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/btnDevOff"
-                style="@style/Pill"
-                android:text="@string/settings_off" />
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnLight"
+                        style="@style/Pill"
+                        android:text="@string/settings_light" />
 
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/btnDevOn"
-                style="@style/Pill"
-                android:layout_marginStart="10dp"
-                android:text="@string/settings_on" />
-        </LinearLayout>
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnDark"
+                        style="@style/Pill"
+                        android:layout_marginStart="10dp"
+                        android:text="@string/settings_dark" />
+                </LinearLayout>
 
-        <TextView
-            android:id="@+id/labelRemote"
-            style="@style/Eyebrow"
-            android:layout_marginTop="22dp"
-            android:text="@string/settings_remote" />
+                <TextView
+                    android:id="@+id/labelDev"
+                    style="@style/Eyebrow"
+                    android:layout_marginTop="22dp"
+                    android:text="@string/settings_dev" />
 
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:orientation="horizontal">
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:orientation="horizontal">
 
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/btnRemoteOff"
-                style="@style/Pill"
-                android:text="@string/settings_off" />
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnDevOff"
+                        style="@style/Pill"
+                        android:text="@string/settings_off" />
 
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/btnRemoteOn"
-                style="@style/Pill"
-                android:layout_marginStart="10dp"
-                android:text="@string/settings_on" />
-        </LinearLayout>
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnDevOn"
+                        style="@style/Pill"
+                        android:layout_marginStart="10dp"
+                        android:text="@string/settings_on" />
+                </LinearLayout>
 
-        <!-- Where the console should point. Filled in by the activity. -->
-        <TextView
-            android:id="@+id/remoteAddress"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:fontFamily="@font/jetbrains_mono_bold"
-            android:textSize="12sp" />
+                <TextView
+                    android:id="@+id/labelRemote"
+                    style="@style/Eyebrow"
+                    android:layout_marginTop="22dp"
+                    android:text="@string/settings_remote" />
 
-        <TextView
-            android:id="@+id/labelVolume"
-            style="@style/Eyebrow"
-            android:layout_marginTop="22dp"
-            android:text="@string/settings_volume" />
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:orientation="horizontal">
 
-        <com.google.android.material.slider.Slider
-            android:id="@+id/sliderVolume"
-            style="@style/SettingSlider"
-            android:stepSize="1"
-            android:valueFrom="0"
-            android:valueTo="100" />
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnRemoteOff"
+                        style="@style/Pill"
+                        android:text="@string/settings_off" />
 
-        <TextView
-            android:id="@+id/labelBrightness"
-            style="@style/Eyebrow"
-            android:layout_marginTop="12dp"
-            android:text="@string/settings_brightness" />
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnRemoteOn"
+                        style="@style/Pill"
+                        android:layout_marginStart="10dp"
+                        android:text="@string/settings_on" />
+                </LinearLayout>
 
-        <com.google.android.material.slider.Slider
-            android:id="@+id/sliderBrightness"
-            style="@style/SettingSlider"
-            android:stepSize="1"
-            android:valueFrom="5"
-            android:valueTo="100" />
+                <!-- Where the console should point. Filled in by the activity. -->
+                <TextView
+                    android:id="@+id/remoteAddress"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:fontFamily="@font/jetbrains_mono_bold"
+                    android:textSize="12sp" />
 
-        <TextView
-            android:id="@+id/labelColour"
-            style="@style/Eyebrow"
-            android:layout_marginTop="12dp"
-            android:text="@string/settings_colour" />
+                <TextView
+                    android:id="@+id/labelVolume"
+                    style="@style/Eyebrow"
+                    android:layout_marginTop="22dp"
+                    android:text="@string/settings_volume" />
 
-        <!-- Filled with one circle per swatch in SettingsPanel. -->
-        <LinearLayout
-            android:id="@+id/swatches"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="10dp"
-            android:orientation="horizontal" />
+                <com.google.android.material.slider.Slider
+                    android:id="@+id/sliderVolume"
+                    style="@style/SettingSlider"
+                    android:stepSize="1"
+                    android:valueFrom="0"
+                    android:valueTo="100" />
 
-        <TextView
-            android:id="@+id/hintText"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="22dp"
-            android:fontFamily="@font/jetbrains_mono_bold"
-            android:lineSpacingMultiplier="1.5"
-            android:text="@string/settings_hint"
-            android:textSize="12sp" />
+                <TextView
+                    android:id="@+id/labelBrightness"
+                    style="@style/Eyebrow"
+                    android:layout_marginTop="12dp"
+                    android:text="@string/settings_brightness" />
 
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/btnClose"
-            style="@style/Pill"
-            android:layout_marginTop="18dp"
-            android:text="@string/settings_close" />
+                <com.google.android.material.slider.Slider
+                    android:id="@+id/sliderBrightness"
+                    style="@style/SettingSlider"
+                    android:stepSize="1"
+                    android:valueFrom="5"
+                    android:valueTo="100" />
+
+                <TextView
+                    android:id="@+id/labelColour"
+                    style="@style/Eyebrow"
+                    android:layout_marginTop="12dp"
+                    android:text="@string/settings_colour" />
+
+                <!-- Filled with one circle per swatch in SettingsPanel. -->
+                <LinearLayout
+                    android:id="@+id/swatches"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="10dp"
+                    android:orientation="horizontal" />
+
+                <TextView
+                    android:id="@+id/hintText"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="22dp"
+                    android:fontFamily="@font/jetbrains_mono_bold"
+                    android:lineSpacingMultiplier="1.5"
+                    android:text="@string/settings_hint"
+                    android:textSize="12sp" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnClose"
+                    style="@style/Pill"
+                    android:layout_marginTop="18dp"
+                    android:text="@string/settings_close" />
+            </LinearLayout>
+        </ScrollView>
     </LinearLayout>
 </FrameLayout>

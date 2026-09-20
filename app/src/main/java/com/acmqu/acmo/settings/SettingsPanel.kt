@@ -84,7 +84,7 @@ class SettingsPanel(
             label.setTextColor(muted)
         }
         b.hintText.setTextColor(muted)
-        b.remoteAddress.setTextColor(muted)
+        b.remoteAddress.setTextColor(theme.ink)
         b.remoteAddress.text = remoteStatus()
 
         stylePill(b.btnLight, selected = !settings.dark, theme)
