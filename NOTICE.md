@@ -6,7 +6,8 @@ ACMO is MIT licensed (see `LICENSE`). It ships or downloads these:
 | --- | --- | --- |
 | [Vosk](https://alphacephei.com/vosk/) `vosk-android` 0.3.75 and the `vosk-model-small-en-us-0.15` model, downloaded at build time into `app/src/main/assets/model-en-us/` | wake word | Apache-2.0 |
 | [JNA](https://github.com/java-native-access/jna) 5.18.1 | Vosk's bridge to its native library | Apache-2.0 / LGPL-2.1 (dual) |
-| [OkHttp](https://square.github.io/okhttp/) 4.12.0 | HTTP to Gemini | Apache-2.0 |
+| [OkHttp](https://square.github.io/okhttp/) 4.12.0 | HTTP to Gemini and ElevenLabs | Apache-2.0 |
+| [NanoHTTPD](https://github.com/NanoHttpd/nanohttpd) 2.3.1 | the remote console's server on the tablet | BSD-3-Clause |
 | [JetBrains Mono](https://www.jetbrains.com/lp/mono/) Bold, `app/src/main/res/font/jetbrains_mono_bold.ttf` | the face's glyphs | SIL OFL 1.1 — `third_party/JetBrainsMono-OFL.txt` |
 | The Material Symbols "mic" glyph, `app/src/main/res/drawable/ic_mic.xml` | the dev bar's mic button | Apache-2.0 |
 

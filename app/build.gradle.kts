@@ -9,16 +9,17 @@ plugins {
     alias(libs.plugins.kotlin.android)
 }
 
-// The Gemini key never enters the repo: it is read from local.properties (gitignored)
-// and baked into BuildConfig. That also means a built APK contains it -- do not hand
+// The API keys never enter the repo: they are read from local.properties (gitignored)
+// and baked into BuildConfig. That also means a built APK contains them -- do not hand
 // APKs around.
 val localProps = Properties().apply {
     val f = rootProject.file("local.properties")
     if (f.exists()) f.inputStream().use { load(it) }
 }
-val geminiApiKey: String = localProps.getProperty("GEMINI_API_KEY")
-    ?: System.getenv("GEMINI_API_KEY")
-    ?: ""
+fun secret(name: String): String = localProps.getProperty(name) ?: System.getenv(name) ?: ""
+val geminiApiKey = secret("GEMINI_API_KEY")
+val elevenLabsApiKey = secret("ELEVENLABS_API_KEY")
+val elevenLabsVoiceId = secret("ELEVENLABS_VOICE_ID")
 
 android {
     namespace = "com.acmqu.acmo"
@@ -32,6 +33,9 @@ android {
         versionName = "2.0"
 
         buildConfigField("String", "GEMINI_API_KEY", "\"$geminiApiKey\"")
+        // The remote console's voice. A blank voice means ElevenLabs.DEFAULT_VOICE_ID.
+        buildConfigField("String", "ELEVENLABS_API_KEY", "\"$elevenLabsApiKey\"")
+        buildConfigField("String", "ELEVENLABS_VOICE_ID", "\"$elevenLabsVoiceId\"")
     }
 
     buildTypes {
@@ -49,6 +53,12 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
+    }
+
+    testOptions {
+        // android.util.Log returns 0 instead of throwing "not mocked", so the server and
+        // the ElevenLabs client, which log, can be unit tested on the JVM.
+        unitTests.isReturnDefaultValues = true
     }
 }
 
@@ -108,6 +118,8 @@ dependencies {
     implementation(libs.google.material)
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.okhttp)
+    // The remote console's server on the tablet.
+    implementation(libs.nanohttpd)
     implementation(libs.vosk.android)
     // Vosk reaches its native library through JNA; its POM asks for the AAR flavour.
     implementation("net.java.dev.jna:jna:${libs.versions.jna.get()}@aar")
@@ -115,4 +127,6 @@ dependencies {
     testImplementation(libs.junit)
     // Android's org.json is a stub on the JVM; the real one makes the parsers testable.
     testImplementation(libs.json)
+    // A local HTTP server that plays ElevenLabs in the client's tests.
+    testImplementation(libs.okhttp.mockwebserver)
 }
