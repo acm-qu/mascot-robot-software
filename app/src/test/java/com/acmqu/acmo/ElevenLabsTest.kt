@@ -3,12 +3,14 @@ package com.acmqu.acmo
 import com.acmqu.acmo.voice.ElevenLabs
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
+import okhttp3.mockwebserver.SocketPolicy
 import okio.Buffer
 import org.json.JSONObject
 import org.junit.After
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -109,6 +111,44 @@ class ElevenLabsTest {
         call.cancel()
         assertFalse(sink.done.await(1, TimeUnit.SECONDS))
         assertNull(sink.failure)
+        assertEquals(0, sink.finished)
+    }
+
+    @Test
+    fun `a stream that dies mid-body is a failure, not a finish`() {
+        server.enqueue(
+            MockResponse().setChunkedBody(Buffer().write(ByteArray(200_000)), 3000)
+                .setSocketPolicy(SocketPolicy.DISCONNECT_DURING_RESPONSE_BODY),
+        )
+        val sink = RecordingSink()
+        client().stream("Hello", sink)
+        assertTrue(sink.done.await(5, TimeUnit.SECONDS))
+        assertNotNull(sink.failure)
+        assertEquals(0, sink.finished)
+        assertTrue("some audio should have arrived first", sink.chunkCount() > 0)
+    }
+
+    @Test
+    fun `a 2xx with no audio at all just finishes`() {
+        server.enqueue(MockResponse())
+        val sink = RecordingSink()
+        client().stream("Hello", sink)
+        assertTrue(sink.done.await(5, TimeUnit.SECONDS))
+        assertEquals(1, sink.finished)
+        assertNull(sink.failure)
+        assertEquals(0, sink.chunkCount())
+    }
+
+    @Test
+    fun `an error whose body is torn still fails instead of going silent`() {
+        server.enqueue(
+            MockResponse().setResponseCode(500).setBody("""{"detail":{"message":"boom"}}""")
+                .setSocketPolicy(SocketPolicy.DISCONNECT_DURING_RESPONSE_BODY),
+        )
+        val sink = RecordingSink()
+        client().stream("Hello", sink)
+        assertTrue("the sink heard nothing", sink.done.await(5, TimeUnit.SECONDS))
+        assertTrue("got: ${sink.failure}", sink.failure?.startsWith("ElevenLabs 500: ") == true)
         assertEquals(0, sink.finished)
     }
 

@@ -28,6 +28,7 @@ class ElevenLabs(
     private val http: OkHttpClient = defaultClient,
     baseUrl: String = BASE_URL,
 ) {
+    /** Where the audio goes. Implementations must not throw: an exception here escapes on OkHttp's thread. */
     interface Sink {
         /** Some of the audio, in order. OkHttp's thread. */
         fun play(pcm: ByteArray)
@@ -35,7 +36,7 @@ class ElevenLabs(
         /** The whole line has been delivered. */
         fun finish()
 
-        /** No more audio is coming: an HTTP error, a timeout, a dropped connection. Never after a cancel. */
+        /** No more audio is coming: an HTTP error, a timeout, a dropped connection. Not after a cancel, apart from one that lands mid-read. */
         fun fail(message: String)
     }
 
@@ -60,13 +61,15 @@ class ElevenLabs(
             override fun onResponse(call: Call, response: Response) {
                 response.use { r ->
                     if (!r.isSuccessful) {
-                        val why = errorMessage(r.body?.string())
+                        // Bounded and exception-safe: a torn or slow error body must still end in fail(),
+                        // because an exception escaping this callback is swallowed by OkHttp, not reported.
+                        val why = errorMessage(runCatching { r.peekBody(ERROR_BODY_BYTES).string() }.getOrNull())
                         Log.w(TAG, "HTTP ${r.code}: $why")
                         sink.fail("ElevenLabs ${r.code}: $why")
                         return
                     }
                     val input = r.body?.byteStream() ?: run {
-                        sink.finish()
+                        if (!call.isCanceled()) sink.finish()
                         return
                     }
                     val buf = ByteArray(CHUNK_BYTES)
@@ -105,6 +108,9 @@ class ElevenLabs(
         /** About 85 ms of audio per read. */
         const val CHUNK_BYTES = 4096
 
+        /** As much of an error body as is worth reading; the message is truncated to 200 characters anyway. */
+        const val ERROR_BODY_BYTES = 4096L
+
         private val JSON = "application/json; charset=utf-8".toMediaType()
 
         /**
@@ -117,7 +123,7 @@ class ElevenLabs(
                 when (val detail = JSONObject(body).opt("detail")) {
                     is JSONObject -> (detail.opt("message") as? String)?.ifBlank { null }
                         ?: (detail.opt("status") as? String)?.ifBlank { null }
-                        ?: detail.toString()
+                        ?: detail.toString().take(200)
                     is String -> detail
                     else -> body.take(200)
                 }
