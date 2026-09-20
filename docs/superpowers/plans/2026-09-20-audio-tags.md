@@ -1032,6 +1032,7 @@ Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 
 **Files:**
 - Modify: `app/src/main/java/com/acmqu/acmo/Brain.kt` (`playNext()`, around lines 505–541, and the imports)
+- Modify: `app/src/main/java/com/acmqu/acmo/voice/ElevenLabs.kt` — decided in Task 3's review: once `Brain` implements `Sink.timed`, its default body goes (`fun timed(atByte: LongArray)`, abstract, and the KDoc sentence about not overriding it), so a future sink cannot silently drop every cue.
 
 There is no JVM test for `Brain` (it needs Android); the build is the check here, and Task 8 exercises it on the tablet.
 
