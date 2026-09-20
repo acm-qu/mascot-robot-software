@@ -529,11 +529,11 @@ class Brain(
         faceIndex = 0
         lastFailure = null
         state = State.SPEAKING
-        // The operator's face until the first face tag -- or that tag's face, if the line opens with one:
+        // The operator's face until the first face tag -- or that tag's face, if only tags come before it:
         // the v3 model takes a second or two to start, and the face should not flip when it does.
         val text = entry.line.text
         val tags = Tags.faces(text)
-        val opening = tags.firstOrNull()?.takeIf { it.index == 0 }?.feeling ?: entry.line.feeling
+        val opening = Tags.opening(text) ?: entry.line.feeling
         val expressive = Tags.hasTags(text)
         face.setExpression(opening)
         Log.i(TAG, "line #${entry.id} (${opening.label}${if (expressive) ", expressive" else ""}): \"$text\"")
@@ -545,7 +545,7 @@ class Brain(
                 // OkHttp's thread. A cue is registered before the audio it points into reaches the player,
                 // and guarded by identity: a stopped line's cue must never touch the next line's face.
                 for (c in cues.feed(atByte)) {
-                    Log.i(TAG, "line #${entry.id}: ${c.feeling.label} at ${c.atByte / AudioOut.BYTES_PER_MS} ms")
+                    Log.i(TAG, "line #${entry.id}: cue ${c.feeling.label} at ${c.atByte / AudioOut.BYTES_PER_MS} ms")
                     o.cue(c.atByte) { if (playing === entry) face.setExpression(c.feeling) }
                 }
             }

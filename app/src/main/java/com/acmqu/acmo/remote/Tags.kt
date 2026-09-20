@@ -41,4 +41,15 @@ object Tags {
     fun faces(text: String): List<FaceTag> = TAG.findAll(text).mapNotNull { m ->
         WORDS[m.groupValues[1].trim().lowercase()]?.let { FaceTag(m.value, text.codePointCount(0, m.range.first), it) }
     }.toList()
+
+    /** The face a line opens with, when it starts with a face tag -- other tags and spaces may come first, text may not. */
+    fun opening(text: String): Expression? {
+        var end = 0
+        for (m in TAG.findAll(text)) {
+            if (text.substring(end, m.range.first).isNotBlank()) return null
+            WORDS[m.groupValues[1].trim().lowercase()]?.let { return it }
+            end = m.range.last + 1
+        }
+        return null
+    }
 }

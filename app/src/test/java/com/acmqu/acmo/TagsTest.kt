@@ -5,6 +5,7 @@ import com.acmqu.acmo.remote.FaceTag
 import com.acmqu.acmo.remote.Tags
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -109,5 +110,16 @@ class TagsTest {
         assertFalse(Tags.hasTags("[" + "x".repeat(41) + "]"))
         assertEquals(listOf(0 to Expression.SAD, 5 to Expression.HAPPY), Tags.faces("[sad][happy]").map { it.index to it.feeling })
         assertEquals(listOf(FaceTag("[sad]", 4, Expression.SAD)), Tags.faces("Bye [sad]"))
+    }
+
+    @Test
+    fun `a line opens on its first face tag only if nothing but tags comes before it`() {
+        assertEquals(Expression.SAD, Tags.opening("[sad] Hello."))
+        assertEquals(Expression.SAD, Tags.opening("[whispers] [sad] Hello."))
+        assertEquals(Expression.SAD, Tags.opening("  [SAD]Hello."))
+        assertNull(Tags.opening("Hello [sad]."))
+        assertNull(Tags.opening("[whispers] Hello [sad]."))
+        assertNull(Tags.opening("[whispers] Hello."))
+        assertNull(Tags.opening("Plain text."))
     }
 }

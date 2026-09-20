@@ -49,8 +49,9 @@ class AudioOut(
         if (whole > 0) queue.put(if (whole == data.size) data else data.copyOf(whole))
     }
 
-    /** Runs [action] on the main thread when playback reaches [atByte] of this reply. */
+    /** Runs [action] on the main thread when playback reaches [atByte] of this reply. Nothing after a cancel. */
     fun cue(atByte: Long, action: () -> Unit) {
+        if (cancelled) return
         synchronized(cues) { cues.add(Cue(atByte, action)) }
     }
 
