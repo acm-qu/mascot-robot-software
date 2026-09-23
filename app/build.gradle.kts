@@ -109,6 +109,10 @@ dependencies {
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.okhttp)
     implementation(libs.vosk.android)
+
+    // Arduino
+    implementation(libs.jserialcomm)
+
     // Vosk reaches its native library through JNA; its POM asks for the AAR flavour.
     implementation("net.java.dev.jna:jna:${libs.versions.jna.get()}@aar")
 

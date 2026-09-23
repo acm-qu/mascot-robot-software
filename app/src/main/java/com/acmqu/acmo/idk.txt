@@ -1,0 +1,163 @@
+================================================================================
+ACMO SOFTWARE PROJECT - FOLDER EXPLANATIONS
+================================================================================
+
+This document provides a simple explanation of each folder under `com.acmqu.acmo`:
+1. face/
+2. gemini/
+3. kneedle/
+4. settings/
+5. voice/
+
+--------------------------------------------------------------------------------
+1. FACE (`com.acmqu.acmo.face`)
+--------------------------------------------------------------------------------
+Summary:
+Handles drawing and animating ACMO's face on screen. It controls eye shapes, blinking, gaze movements, facial expressions, and ASCII mark symbols (brows, cheeks, mouth, tear, badge).
+
+Contents:
+- Expression.kt:
+  - Defines the 8 expressions: IDLE, SURPRISED, SAD, HAPPY, ANGRY, PASSIONATE, ANNOYED, EXCITED.
+  - Controls eye poses (scale, rotation, offsets) and text glyph marks for each expression.
+  - Contains helpers to cycle expressions (`next()`) or parse expression names from strings (`fromLabel()`).
+- FaceTheme.kt:
+  - Defines color schemes (`LIGHT` and `DARK` modes, plus custom accent colors for cheeks, badges, and tears).
+- FaceView.kt:
+  - A custom Android View (`<com.acmqu.acmo.face.FaceView>`) that draws eyes and text glyph marks on Canvas.
+  - Handles smooth transitions, eye blinking, gaze shifts, mouth frames while speaking, and expression animations.
+
+Main Functionality:
+- Rendering a reactive, animated robot face on screen that changes moods and animates its mouth when talking.
+
+How It Is Used:
+- Placed in `activity_main.xml` layout and manipulated by `Brain.kt` or UI listeners when ACMO speaks, changes expression, or responds to events.
+
+How To Access It From Other Files:
+- Import package: `import com.acmqu.acmo.face.*`
+- Update expression: `faceView.setExpression(Expression.HAPPY)`
+- Animate mouth: `faceView.setSpeaking(true)` / `faceView.setSpeaking(false)`
+- Change theme: `faceView.setTheme(FaceTheme.of(dark = true, accent = Color.RED))`
+- Cycle next expression: `faceView.setExpression(faceView.expression.next())`
+
+
+--------------------------------------------------------------------------------
+2. GEMINI (`com.acmqu.acmo.gemini`)
+--------------------------------------------------------------------------------
+Summary:
+Connects ACMO to Google's Gemini AI API. It converts recorded voice audio into text transcripts and generates conversational replies with matching facial expressions.
+
+Contents:
+- Personality.kt:
+  - Holds ACMO's prompt and personality rules ("playful mascot robot for Qatar University ACM").
+  - Enforces response constraints: 1-4 short plain-text segments, BCP-47 language tags ("en"/"ar"), and matching feelings (`Expression`) per segment.
+  - Generates the structured JSON response schema for Gemini API calls.
+- Reply.kt:
+  - Defines data models `Segment` (feeling + text) and `Reply` (list of segments + language tag + interaction ID).
+  - Includes `Reply.parse()` to parse Gemini JSON output into structured Kotlin objects.
+- GeminiClient.kt:
+  - An OkHttp client calling Google Gemini Interactions API:
+    - `transcribe()`: Sends recorded WAV audio to `gemini-3.5-transcribe` to get text.
+    - `reply()`: Sends text to `gemini-3.5-flash-lite` to get structured JSON replies, maintaining conversation memory via `previousInteractionId`.
+
+Main Functionality:
+- Audio transcription and AI-powered conversational logic.
+
+How It Is Used:
+- Called by `Brain.kt` when the user speaks or types a command. Speech is transcribed and sent to Gemini, returning text segments paired with expression feelings.
+
+How To Access It From Other Files:
+- Import package: `import com.acmqu.acmo.gemini.*`
+- Initialize client: `val gemini = GeminiClient(apiKey)`
+- Transcribe audio WAV: `val text = gemini.transcribe(wavByteArray)`
+- Get AI response: `val reply = gemini.reply(text, previousInteractionId)`
+- Read response segments: `for (segment in reply.segments) { val feeling = segment.feeling; val text = segment.text }`
+
+
+--------------------------------------------------------------------------------
+3. KNEEDLE (`com.acmqu.acmo.kneedle`)
+--------------------------------------------------------------------------------
+Summary:
+Translates natural language voice commands into physical robot movements by communicating over USB serial with an Arduino board.
+
+Contents:
+- needle:
+  - Local binary executable model that matches natural language prompt strings to function tools.
+- tools.json:
+  - A JSON array defining available tools/actions (e.g. `spin`, `dance`) with descriptions for the model.
+- script.kt:
+  - Kotlin driver script (invokable via CLI or directly in Kotlin code).
+  - Sends prompts to `needle`, parses the matched tool call (e.g. `spin`), maps it to a single character code (e.g. `'s'`), and sends it over serial (`jSerialComm`) to the connected Arduino.
+- README.md:
+  - Explains the pipeline architecture: `prompt -> needle -> tool name -> letter -> serial -> Arduino`.
+
+Main Functionality:
+- Natural language tool matching and Arduino serial hardware control.
+
+How It Is Used:
+- Enables ACMO to execute physical commands (spinning, dancing) when requested by voice or text.
+
+How To Access It From Other Files:
+- Import package: `import com.acmqu.acmo.kneedle.*`
+- Run command: `val success = runCommand("do a spin")`
+- View available tools: `val tools = availableTools()`
+- Close serial port connection: `close()`
+
+
+--------------------------------------------------------------------------------
+4. SETTINGS (`com.acmqu.acmo.settings`)
+--------------------------------------------------------------------------------
+Summary:
+Manages application settings, persistence, and the slide-out settings panel UI.
+
+Contents:
+- Settings.kt:
+  - Persists settings in Android `SharedPreferences`: dark mode (`dark`), developer controls toggle (`devMode`), theme color preset (`swatch`), and screen brightness (`brightness`).
+- SettingsPanel.kt:
+  - Controller binding `ViewSettingsBinding` layout to `Settings`.
+  - Handles light/dark toggles, developer mode switches, media volume slider, screen brightness slider, and color swatch selection.
+
+Main Functionality:
+- Customizing app visual theme, screen brightness, device audio volume, and developer controls.
+
+How It Is Used:
+- Bound to the drawer view in `MainActivity.kt`. Changing settings updates `SharedPreferences`, window attributes, and refreshes `FaceView` colors.
+
+How To Access It From Other Files:
+- Import package: `import com.acmqu.acmo.settings.*`
+- Create settings manager: `val settings = Settings(context)`
+- Create settings panel UI controller: `val panel = SettingsPanel(binding.settings, activity, settings) { refreshUI() }`
+- Read/Write preferences: `settings.dark = true`, `val theme = settings.theme()`, `panel.refresh()`
+
+
+--------------------------------------------------------------------------------
+5. VOICE (`com.acmqu.acmo.voice`)
+--------------------------------------------------------------------------------
+Summary:
+Handles audio recording, offline wake word detection, text-to-speech output, and WAV formatting.
+
+Contents:
+- WakeWord.kt:
+  - Defines phonetic sound-alike variants for "ACMO" ("ack mo", "acme", "hack mo", etc.) used in Vosk recognizer grammar and regex matching.
+- ModelInstaller.kt:
+  - Unpacks the offline Vosk speech recognition model (`model-en-us`) from assets into local app storage on launch.
+- MicPipeline.kt:
+  - Background microphone recording thread (16 kHz mono PCM).
+  - Operates in 3 modes: `WAKE` (listens for wake word via Vosk), `CAPTURE` (records voice prompt into WAV until silence/timeout), and `PAUSED` (stops recording while ACMO speaks/thinks).
+- Speaker.kt:
+  - Wrapper around Android's `TextToSpeech` engine.
+  - Speaks text aloud in English ("en") or Arabic ("ar") with `onStart` / `onFinish` callbacks that drive face mouth animations.
+- Wav.kt:
+  - Helper to wrap raw 16 kHz mono PCM bytes into a 44-byte RIFF WAV audio header expected by Gemini API.
+
+Main Functionality:
+- Audio input pipeline (wake word listener + prompt recorder) and audio output pipeline (TTS with lip-sync callbacks).
+
+How It Is Used:
+- Managed by `Brain.kt`. Listens for wake words, records user audio prompts, sends WAV data to Gemini, and speaks AI response text aloud.
+
+How To Access It From Other Files:
+- Import package: `import com.acmqu.acmo.voice.*`
+- Load Vosk model: `val model = ModelInstaller.load(context)`
+- Initialize mic pipeline: `val mic = MicPipeline(model, listener); mic.start(); mic.setMode(MicPipeline.Mode.WAKE)`
+- Speak text sentence: `val speaker = Speaker(context); speaker.speak("Hello!", "en")`
+- Convert raw PCM to WAV: `val wavBytes = Wav.pcm16Mono(pcmBytes, 16000)`
