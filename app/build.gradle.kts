@@ -30,7 +30,9 @@ android {
         targetSdk = 36
         versionCode = 1
         versionName = "1.0"
-
+        ndk {
+            abiFilters += listOf("armeabi-v7a", "arm64-v8a")
+        }
         buildConfigField("String", "GEMINI_API_KEY", "\"$geminiApiKey\"")
     }
 
@@ -109,6 +111,10 @@ dependencies {
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.okhttp)
     implementation(libs.vosk.android)
+
+    // Arduino
+    implementation(libs.jserialcomm)
+
     // Vosk reaches its native library through JNA; its POM asks for the AAR flavour.
     implementation("net.java.dev.jna:jna:${libs.versions.jna.get()}@aar")
 

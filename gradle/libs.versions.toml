@@ -14,6 +14,7 @@ vosk = "0.3.75"
 jna = "5.18.1"
 junit = "4.13.2"
 json = "20250107"
+jserialcomm = "2.11.4"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -26,6 +27,7 @@ okhttp = { group = "com.squareup.okhttp3", name = "okhttp", version.ref = "okhtt
 vosk-android = { group = "com.alphacephei", name = "vosk-android", version.ref = "vosk" }
 junit = { group = "junit", name = "junit", version.ref = "junit" }
 json = { group = "org.json", name = "json", version.ref = "json" }
+jserialcomm = { group = "com.fazecast", name = "jSerialComm", version.ref = "jserialcomm" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

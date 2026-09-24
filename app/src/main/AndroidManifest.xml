@@ -10,6 +10,11 @@
         android:name="android.hardware.microphone"
         android:required="true" />
 
+    <!-- USB host feature for Arduino / serial communication -->
+    <uses-feature
+        android:name="android.hardware.usb.host"
+        android:required="false" />
+
     <supports-screens
         android:largeScreens="true"
         android:xlargeScreens="true" />
