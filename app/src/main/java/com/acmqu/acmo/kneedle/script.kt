@@ -1,6 +1,7 @@
 package com.acmqu.acmo.kneedle
 
-// Reads a command from the user, asks ./needle which tool it maps to, looks
+/*
+* // Reads a command from the user, asks ./needle which tool it maps to, looks
 // that tool up in tools.json, and sends the matching letter to the Arduino.
 //
 // Two doors in. main() is the command line. runCommand() is the one for other
@@ -11,9 +12,11 @@ package com.acmqu.acmo.kneedle
 // lines - both jars (jSerialComm and org.json; Android ships org.json itself,
 // a plain JVM does not) have to be on the classpath at compile and run time:
 //
-//   kotlinc script.kt -cp "libs/*" -d kneedle.jar
-//   java -cp "kneedle.jar;libs/*" ScriptKt "do a spin"   # ';' is ':' off Windows
-//
+//   kotlinc script.kt -cp "libs/'*" -d kneedle.jar
+//   java -cp "kneedle.jar;libs/'*" ScriptKt "do a spin"   # ';' is ':' off Windows
+// (the single quotations (') after libs/ in the 2 lines avobe are for comments theyre not
+* actually a part of the syntax or anytging)
+*
 // From another file in the same project:
 //
 //   if (!runCommand("turn the LED on")) System.err.println("nothing sent")
@@ -26,29 +29,85 @@ package com.acmqu.acmo.kneedle
 //   ARDUINO_PORT  serial port name (default: the first port found)
 //   ARDUINO_BAUD  baud rate (default: 9600 - must match Serial.begin())
 
+* */
+
 import java.io.File
-import jserialcomm.SerialPort as SerialPort
+import com.fazecast.jSerialComm.SerialPort
 import org.json.JSONArray
 import org.json.JSONObject
 import kotlin.system.exitProcess
+import com.acmqu.acmo.BuildConfig
+import com.acmqu.acmo.gemini.GeminiClient
+import kotlinx.coroutines.runBlocking
 
 // ------------------------------------------------------------------ setup
 val baseDir = File(System.getenv("NEEDLE_HOME") ?: ".").absoluteFile
-val toolsFile = File(baseDir, "tools.json")
+
+var geminiClient: GeminiClient? = null
+var previousInteractionId: String? = null
+
+fun ensureGeminiClient(): GeminiClient? {
+    geminiClient?.let { return it }
+    val apiKey = try {
+        BuildConfig.GEMINI_API_KEY.ifBlank { System.getenv("GEMINI_API_KEY").orEmpty() }
+    } catch (_: Throwable) {
+        System.getenv("GEMINI_API_KEY").orEmpty()
+    }
+    if (apiKey.isBlank()) {
+        System.err.println("Gemini API key is empty -- cannot handle fallback conversation")
+        return null
+    }
+    val client = GeminiClient(apiKey)
+    geminiClient = client
+    return client
+}
+
+val toolsFile: File by lazy { findToolsFile(baseDir) }
 
 // Resolved on the first command rather than at class load, so merely calling
 // into this file from another one cannot fail: an eager top-level val that
 // throws poisons the class for the rest of the JVM's life.
-val needleBin : File by lazy {findNeedle(baseDir, toolsFile)}
+val needleBin: File by lazy { findNeedle(baseDir, toolsFile) }
+
+fun findToolsFile(baseDir: File): File {
+    val candidateDirs = listOfNotNull(
+        System.getenv("NEEDLE_HOME")?.let { File(it) },
+        File(baseDir, "app/src/main/jniLibs"),
+        File(baseDir, "src/main/jniLibs"),
+        File(baseDir, "jniLibs"),
+        File(baseDir, "../../../jniLibs"),
+        File(baseDir, "../../../../../jniLibs"),
+        baseDir
+    )
+    for (dir in candidateDirs) {
+        val f = File(dir, "tools.json")
+        if (f.isFile) return f
+    }
+    return File(baseDir, "tools.json")
+}
 
 fun findNeedle(baseDir: File, toolsFile: File): File {
-    val bin = File(baseDir, "needle")
-    if (!bin.isFile || !toolsFile.isFile) {
-        System.err.println("needle or tools.json not found in $baseDir")
-        System.err.println("run from the kneedle/ directory, or set NEEDLE_HOME to it")
-        exitProcess(1)
+    val candidateDirs = listOfNotNull(
+        System.getenv("NEEDLE_HOME")?.let { File(it) },
+        File(baseDir, "app/src/main/jniLibs"),
+        File(baseDir, "src/main/jniLibs"),
+        File(baseDir, "jniLibs"),
+        File(baseDir, "../../../jniLibs"),
+        File(baseDir, "../../../../../jniLibs"),
+        baseDir
+    )
+    for (dir in candidateDirs) {
+        val binDirect = File(dir, "needle")
+        if (binDirect.isFile) return binDirect
+        val binArm64 = File(dir, "arm64-v8a/needle")
+        if (binArm64.isFile) return binArm64
     }
-    return bin
+    if (!toolsFile.isFile) {
+        System.err.println("tools.json not found at ${toolsFile.path}")
+    }
+    System.err.println("needle or tools.json not found in jniLibs or $baseDir")
+    System.err.println("ensure needle is in app/src/main/jniLibs/ or set NEEDLE_HOME")
+    exitProcess(1)
 }
 
 // Raised instead of exiting when needle or tools.json cannot be used. Killing
@@ -154,10 +213,11 @@ val tools: Map<String, () -> Char> = mapOf(
 // ------------------------------------------------------------------ dispatch
 
 fun runNeedle(prompt: String): String? {
+    val workingDir = needleBin.parentFile ?: baseDir
     val proc = try {
         ProcessBuilder(needleBin.path, "--tools", toolsFile.path, "--prompt", prompt)
-            .directory(baseDir)
-            .redirectError(ProcessBuilder.Redirect.INHERIT)
+            .directory(workingDir)
+            .redirectErrorStream(true)
             .start()
     } catch (e: Exception) {
         // needle is an aarch64 Android binary - this is what you get off-device
@@ -186,14 +246,26 @@ fun dispatch(prompt: String): Boolean {
         return false
     }
 
-    val call = parsed.optJSONArray("function_calls")?.optJSONObject(0)
+    val functionCalls = parsed.optJSONArray("function_calls")
+    val call = functionCalls?.optJSONObject(0)
     if (call == null) {
-        println("no tool call for: $prompt")
-        // THIS IS WHERE we pass unknown voice commands to a smarter model
-        // If we can trust needle to send empty lists upon recieving an unknown vc
-        // Claude turned this func's return type from unit to boolwan so not sure 
-        // what the return type on this case might should be '-'
-        return false
+        println("no tool call for: $prompt - passing to Gemini for conversation")
+        val client = ensureGeminiClient()
+        if (client == null) {
+            System.err.println("Gemini client unavailable for fallback conversation")
+            return false
+        }
+        return try {
+            val reply = runBlocking { client.reply(prompt, previousInteractionId) }
+            previousInteractionId = reply.interactionId
+            for (segment in reply.segments) {
+                println("[gemini] (${segment.feeling.label}) ${segment.text}")
+            }
+            true
+        } catch (e: Exception) {
+            System.err.println("Gemini reply failed: ${e.message}")
+            false
+        }
     }
 
     val name = call.stringField("name")
