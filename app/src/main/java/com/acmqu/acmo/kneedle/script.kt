@@ -8,7 +8,8 @@ package com.acmqu.acmo.kneedle
 // same path, so a caller gets the whole pipeline - model, lookup, serial - for
 // the price of a string.
 // This is a compiled source file, not a script, so there are no @file:DependsOn
-// lines - both jars have to be on the classpath at compile and run time:
+// lines - both jars (jSerialComm and org.json; Android ships org.json itself,
+// a plain JVM does not) have to be on the classpath at compile and run time:
 //
 //   kotlinc script.kt -cp "libs/*" -d kneedle.jar
 //   java -cp "kneedle.jar;libs/*" ScriptKt "do a spin"   # ';' is ':' off Windows
@@ -27,12 +28,8 @@ package com.acmqu.acmo.kneedle
 
 import java.io.File
 import jserialcomm.SerialPort as SerialPort
-import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonArray
-import kotlinx.serialization.json.JsonElement
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.contentOrNull
+import org.json.JSONArray
+import org.json.JSONObject
 import kotlin.system.exitProcess
 
 // ------------------------------------------------------------------ setup
@@ -42,9 +39,17 @@ val toolsFile = File(baseDir, "tools.json")
 // Resolved on the first command rather than at class load, so merely calling
 // into this file from another one cannot fail: an eager top-level val that
 // throws poisons the class for the rest of the JVM's life.
-val needleBin = File by lazy {findNeedle(baseDir, toolsFile)} // Is ts even necessary?
-// This just adds a lil bit of failure safety ig
-// also wt is lazy
+val needleBin : File by lazy {findNeedle(baseDir, toolsFile)}
+
+fun findNeedle(baseDir: File, toolsFile: File): File {
+    val bin = File(baseDir, "needle")
+    if (!bin.isFile || !toolsFile.isFile) {
+        System.err.println("needle or tools.json not found in $baseDir")
+        System.err.println("run from the kneedle/ directory, or set NEEDLE_HOME to it")
+        exitProcess(1)
+    }
+    return bin
+}
 
 // Raised instead of exiting when needle or tools.json cannot be used. Killing
 // the process is fine when this file is the process; it is not fine inside a
@@ -52,37 +57,24 @@ val needleBin = File by lazy {findNeedle(baseDir, toolsFile)} // Is ts even nece
 // its own way - runCommand returns false, main prints and exits 1.
 class NeedleUnavailable(message: String) : IllegalStateException(message)
 
-
-// ts func is loterally just leftovers from the time we had 2 needle bins (for aarch64 & win32)
-fun findNeedle(baseDir: File, toolsFile: File): File {
-    val bin = File(baseDir, "needle")
-    if (!bin.isFile || !toolsFile.isFile) {
-        System.err.println("needle and tools.json not found in $baseDir")
-        System.err.println("run from the kneedle/ directory, or set NEEDLE_HOME to it")
-        exitProcess(1)
-    }
-    return bin
-}
-
-// isLenient tolerates unquoted keys and single quotes, in case needle's output
-// is not strictly spec-clean. Nothing here is @Serializable, so the whole file
-// stays on the JsonElement tree API and needs no compiler plugin.
-val json = Json { isLenient = true; ignoreUnknownKeys = true }
-
 // Reads a string field off an object without throwing when it is missing or
-// is not a primitive - jsonObject/jsonPrimitive both throw on a bad shape.
-fun JsonElement?.stringField(key: String): String? =
-    ((this as? JsonObject)?.get(key) as? JsonPrimitive)?.contentOrNull
+// is not a primitive - getString would throw, and optString would hand back ""
+// for a missing key and a nested object's JSON text for a bad shape.
+fun JSONObject?.stringField(key: String): String? =
+    when (val v = this?.opt(key)) {
+        null, JSONObject.NULL, is JSONObject, is JSONArray -> null
+        else -> v.toString()
+    }
 
 // name -> declared tool spec, straight out of tools.json
-val declaredTools: Map<String, JsonElement> by lazy {
+val declaredTools: Map<String, JSONObject> by lazy {
     needleBin
-    loadDeclaredTools(toolsFile, json)
+    loadDeclaredTools(toolsFile)
 }
-fun loadDeclaredTools(toolsFile: File, json: Json): Map<String, JsonElement> = try {
-
-    (json.parseToJsonElement(toolsFile.readText()) as JsonArray)
-        .mapNotNull { tool -> tool.stringField("name")?.let { it to tool } }
+fun loadDeclaredTools(toolsFile: File): Map<String, JSONObject> = try {
+    val arr = JSONArray(toolsFile.readText())
+    (0 until arr.length())
+        .mapNotNull { i -> arr.optJSONObject(i)?.let { tool -> tool.stringField("name")?.let { it to tool } } }
         .toMap()
 } catch (e: Exception) {
     System.err.println("could not parse ${toolsFile.name}: ${e.message}")
@@ -92,9 +84,8 @@ fun loadDeclaredTools(toolsFile: File, json: Json): Map<String, JsonElement> = t
 // ------------------------------------------------------------------ serial
 
 //
-val baudRate: Int = System.getenv("ARDUINO_BAUD")?.toIntOrNull() ?: 115200
+val baudRate: Int = System.getenv("ARDUINO_BAUD")?.toIntOrNull() ?: 115200 
 val configuredPort: String? = System.getenv("ARDUINO_PORT")
-
 var arduino: SerialPort? = null
 
 // Opened once and held for the life of the script, because opening the port
@@ -126,7 +117,7 @@ fun serialPort(): SerialPort? {
         return null
     }
 
-    Thread.sleep(2000) // let the board finish resetting before the first write
+    Thread.sleep(2000) 
     arduino = port
     return port
 }
@@ -182,27 +173,26 @@ fun runNeedle(prompt: String): String? {
     return stdout
 }
 
-// True only when a letter actually went down the wire. Every other ending -
-// needle silent, no tool matched, no handler for it, port shut - is reported
-// on stderr and comes back false, so a caller can branch on the one value.
+// True only when a letter actually went down the wire. Every other ending 
+// is reported on stderr and comes back false, so a caller can branch on the one value.
 fun dispatch(prompt: String): Boolean {
     val raw = runNeedle(prompt) ?: return false
 
     val parsed = try {
-        json.parseToJsonElement(raw.trim())
+        JSONObject(raw.trim())
     } catch (e: Exception) {
-        System.err.println("needle did not return JSON (${e.message}):")
+        System.err.println("needle did not return a JSON object (${e.message}):")
         System.err.println(raw.trim())
         return false
     }
 
-    val call = ((parsed as? JsonObject)?.get("function_calls") as? JsonArray)?.firstOrNull()
+    val call = parsed.optJSONArray("function_calls")?.optJSONObject(0)
     if (call == null) {
         println("no tool call for: $prompt")
         // THIS IS WHERE we pass unknown voice commands to a smarter model
         // If we can trust needle to send empty lists upon recieving an unknown vc
-        // Claude turned this func's return type from unit to boolwan so this
-        // case might NOT return false
+        // Claude turned this func's return type from unit to boolwan so not sure 
+        // what the return type on this case might should be '-'
         return false
     }
 
@@ -227,7 +217,7 @@ fun dispatch(prompt: String): Boolean {
 
     val letter = tool() // prints the tool's own debug line
     println("[$name] serial <- '$letter'")
-    sendLetter(letter)
+    return sendLetter(letter)
 }
 
 // ------------------------------------------------------------------ api
