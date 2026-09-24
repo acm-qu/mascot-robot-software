@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Which USB devices ACMO offers to handle: the Arduino UNO R4 (vendor id
+     0x2341 = 9025). Plugging one in prompts to open ACMO and grants it access,
+     so RobotLink can write to the board without the runtime permission dialog. -->
+<resources>
+    <usb-device vendor-id="9025" />
+</resources>

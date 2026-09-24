@@ -36,7 +36,7 @@ class ElevenLabs(
      * [fail] themselves must not throw, as they run outside that guard, on OkHttp's thread.
      */
     interface Sink {
-        /** Some of the audio, in order. OkHttp's thread. */
+        /** Some of the audio, in order. OkHttp's thread. The sink may modify [pcm] in place. */
         fun play(pcm: ByteArray)
 
         /**

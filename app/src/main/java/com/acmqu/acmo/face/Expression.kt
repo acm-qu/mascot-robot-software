@@ -93,8 +93,6 @@ enum class Expression(
         ),
     );
 
-    /** The next one in the design's order, which is what "tap the face to cycle" walks. */
-    fun next(): Expression = entries[(ordinal + 1) % entries.size]
 
     companion object {
         fun fromLabel(label: String?): Expression? =

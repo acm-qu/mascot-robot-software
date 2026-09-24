@@ -347,6 +347,17 @@ Verified on the Redmi Pad 2 (`b15f152c`), the same day, over `adb forward`:
 | Latency to the player, warm | Flash 0.49 s, v3 1.29 s from Enter; the tablet's audio output then starts ~0.47 s later for both (head position lags `play()` by that much; no underruns). |
 | v3 delivery | Bursts of ~0.4 s of audio, 7 s of audio within 2.3 s of the first byte -- well ahead of playback. |
 
+**Revised 2026-09-22 (mouth gate work).** The "fire with the head exactly there"
+above was luck of the sample: a blocking `AudioTrack.write` on the Redmi returns
+in ~520 ms steps once the buffer is full, and a cue was only checked between
+writes, so any cue could fire up to half a second late (a 6.7 s line showed the
+head advancing 520 ms at a time for its first 5 s). `AudioOut` now writes
+`WRITE_NON_BLOCKING` and sleeps 20 ms when the buffer is full; every cue then
+fires within one 20 ms window of its byte, and the head lag at the start
+measured ~0.3 s. The mouth's own cues (`voice/MouthGate.kt`, RMS per 20 ms
+window) ride the same mechanism. The single underrun each line reports is the
+tail running dry and predates this change.
+
 Not measured: v3's credit cost per character (the key lacks `user_read`).
 Worth trying later: `AudioTrack.PERFORMANCE_MODE_LOW_LATENCY` (API 26+) to cut
 the half-second output start; `GET /tags`. `remote/scripts/check-words.mjs` (run by

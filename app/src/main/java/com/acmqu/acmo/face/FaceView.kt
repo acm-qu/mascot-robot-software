@@ -26,7 +26,9 @@ import kotlin.random.Random
  * drawn in JetBrains Mono, and an expression is just a set of eye poses plus
  * the glyphs it wants in those slots. Changing expression shrinks the glyphs
  * that differ to nothing, swaps them 220 ms later and pops the new ones in.
- * While speaking, the mouth cycles through a few frames.
+ * While speaking, the mouth cycles through a few frames -- small or big ones
+ * for the level of t
+ * he voice being heard, and the face's own mouth while it pauses.
  *
  * Everything animates through [Anim], a float that eases toward a target the
  * way a CSS transition does, and the view keeps redrawing only while
@@ -105,6 +107,8 @@ class FaceView @JvmOverloads constructor(context: Context, attrs: AttributeSet? 
 
     var speaking = false
         private set
+    /** While speaking: 0 the voice is silent (the face's own mouth), 1 quiet (small frames), 2 loud (big ones). */
+    private var mouthLevel = 0
     private var frame = 0
 
     /** Design props. */
@@ -165,10 +169,16 @@ class FaceView @JvmOverloads constructor(context: Context, attrs: AttributeSet? 
         invalidate()
     }
 
+    /** Fires on the main thread when the shown expression actually changes (or is
+     *  first switched from the initial one), with the new expression. MainActivity
+     *  uses it to tell the robot which face to react to. */
+    var onExpression: ((Expression) -> Unit)? = null
+
     fun setExpression(e: Expression) {
         if (e == expression) return
         removeCallbacks(swapRunnable)
         expression = e
+        onExpression?.invoke(e)
         hiding = true
         applyEyes()
         applyMarks()
@@ -179,9 +189,24 @@ class FaceView @JvmOverloads constructor(context: Context, attrs: AttributeSet? 
     fun setSpeaking(on: Boolean) {
         if (on == speaking) return
         speaking = on
+        mouthLevel = 0   // closed until the voice is heard, and closed again after
         removeCallbacks(speakRunnable)
         applyMarks()
         if (on) speakTick() else invalidate()
+    }
+
+    /**
+     * How loud the voice being heard is right now; see [mouthLevel]. Opening and closing show at
+     * once; a change between quiet and loud waits for the next frame, which is debounce enough.
+     */
+    fun setMouthLevel(level: Int) {
+        if (!speaking || level == mouthLevel) return
+        val wasOpen = mouthLevel > 0
+        mouthLevel = level
+        if ((level > 0) != wasOpen) {
+            applyMarks()
+            invalidate()
+        }
     }
 
     // ---- the design's state machine ----
@@ -208,7 +233,8 @@ class FaceView @JvmOverloads constructor(context: Context, attrs: AttributeSet? 
         for ((slot, st) in marks) {
             val nm = expression.marks[slot]
             val om = glyphFace.marks[slot]
-            val same = (slot == Slot.MOUTH && speaking) || (nm != null && om != null && nm.glyph == om.glyph)
+            val moving = slot == Slot.MOUTH && speaking && mouthLevel > 0
+            val same = moving || (nm != null && om != null && nm.glyph == om.glyph)
             var m = if (!hiding || same) nm else om
             val hide = hiding && !same
 
@@ -218,7 +244,7 @@ class FaceView @JvmOverloads constructor(context: Context, attrs: AttributeSet? 
                 st.rot.set(0f, duration, interp); st.scale.set(0f, duration, interp)
                 continue
             }
-            if (slot == Slot.MOUTH && speaking) m = m.copy(glyph = FRAMES[frame], rot = 0f, scale = 1.1f)
+            if (moving) m = m.copy(glyph = (if (mouthLevel >= 2) LOUD_FRAMES else QUIET_FRAMES)[frame], rot = 0f, scale = 1.1f)
 
             st.glyph = m.glyph
             st.dx.set(m.dx, duration, interp)
@@ -229,9 +255,11 @@ class FaceView @JvmOverloads constructor(context: Context, attrs: AttributeSet? 
     }
 
     private fun speakTick() {
-        frame = (frame + 1 + Random.nextInt(2)) % FRAMES.size
-        applyMarks()
-        invalidate()
+        frame = (frame + 1 + Random.nextInt(2)) % FRAME_COUNT
+        if (mouthLevel > 0) {   // a silent stretch keeps the face's own mouth; nothing to redraw
+            applyMarks()
+            invalidate()
+        }
         postDelayed(speakRunnable, (speakSpeedMs * (0.7 + Random.nextDouble() * 0.7)).toLong())
     }
 
@@ -336,8 +364,10 @@ class FaceView @JvmOverloads constructor(context: Context, attrs: AttributeSet? 
         /** CSS ease-out, for the blink. */
         val EASE_OUT: TimeInterpolator = PathInterpolator(0f, 0f, .58f, 1f)
 
-        /** The speaking mouth. */
-        val FRAMES = listOf("_", "o", "O", "o", "-", "O", "o", "=", "O", "_", "o", "-")
+        /** The speaking mouth, one cycle for a quiet voice and one for a loud one, in step. */
+        val QUIET_FRAMES = listOf("_", "o", "o", "o", "-", "o", "o", "=", "o", "_", "o", "-")
+        val LOUD_FRAMES = listOf("o", "O", "O", "o", "=", "O", "O", "o", "O", "o", "O", "=")
+        val FRAME_COUNT = QUIET_FRAMES.size
 
         private fun loadMono(context: Context): Typeface =
             try {

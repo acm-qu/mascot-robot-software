@@ -17,7 +17,7 @@ eight expressions.
 
 Nothing but the face is ever on screen. Five taps in the top-left corner open a
 settings card (light/dark, conversation, dev mode, remote console, volume,
-brightness, primary colour); a tap anywhere else previews the next expression.
+brightness, primary colour).
 
 ## What's here
 
@@ -37,6 +37,7 @@ software/
 │   │   ├── ModelInstaller.kt    unpacks the Vosk model from assets on first run
 │   │   ├── Speaker.kt           Android text-to-speech as one suspending call per sentence
 │   │   ├── ElevenLabs.kt        the console's voice: ElevenLabs text-to-speech, streamed as 24 kHz PCM with timing
+│   │   ├── MouthGate.kt         RMS per 20 ms window of the voice -> when the mouth opens, closes, and how wide
 │   │   └── Wav.kt               the 44-byte header Gemini wants
 │   ├── gemini/
 │   │   ├── GeminiClient.kt      transcribe() and reply(), both over the Interactions API
@@ -47,6 +48,7 @@ software/
 │   │   └── SettingsPanel.kt     the card's controls
 │   └── remote/
 │       ├── RemoteServer.kt      the console's way in: POST /say, /stop and GET /state on port 8765
+│       ├── RobotLink.kt        writes ACMO's face to the wheel-control board over the USB cable
 │       ├── Line.kt              a line and its feeling; the wire types
 │       ├── Tags.kt              which [words] name a face, and where they sit in a line
 │       └── FaceCues.kt          from ElevenLabs' character timing to "this face at this byte"
@@ -114,8 +116,6 @@ software/
 - Nothing heard, or nothing said within four seconds: a surprised look, then
   back to idle. An API or network failure: a sad face and a spoken apology — the
   face is the only screen, so the voice is the error channel.
-- **Tap the face** (while idle) to preview the next expression; it reverts after
-  four seconds.
 - **Five taps in the top-left corner** within 2.5 s open settings. **Theme** is
   the face's own light/dark switch. **Conversation** is the wake word and Gemini:
   switch it *Off* for a scripted show, and ACMO ignores its name (the microphone
@@ -131,6 +131,30 @@ software/
   has so far. The button is filled while it listens and dimmed while ACMO is
   thinking or talking. Everything else — the face, the voice, the memory — is
   the same path the wake word takes.
+
+## The robot link
+
+ACMO's face drives the wheel-control board's body language. Every time the
+on-screen expression changes, `FaceView.onExpression` fires and `RobotLink`
+writes one line to the board — `face:happy`, `face:angry`, and so on — which
+the board turns into a small nudge or servo gesture (see
+`hardware/wheel-control`, *Faces*).
+
+The board is reached over the **USB cable**, not WiFi: it is a USB CDC-ACM
+device (its `Serial`), and the tablet is the USB host. `RobotLink` opens the
+device's bulk endpoints and writes to it; a background reader drains the
+board's log output so its serial buffer cannot back up. It is write-only and
+best-effort — no board, no permission, or a pulled cable and the face just
+does not reach it, retried on the next change.
+
+`AndroidManifest.xml` declares the USB host feature and a
+`USB_DEVICE_ATTACHED` filter (`res/xml/device_filter.xml`, Arduino vendor id
+`0x2341`), so plugging the board in offers to open ACMO and grants USB access
+without a dialog. Two things to check on the tablet: it must act as USB host
+(a C-to-C cable between two sink-default devices may not; an OTG adapter or
+the tablet's USB-role setting fixes it), and as host it powers the board and
+stops charging — for long runs, power the board from its own supply so the
+USB link is data-only. Watch `adb logcat -s RobotLink` for `robot USB open`.
 
 ## Remote console
 
@@ -205,8 +229,13 @@ picked, and a typo or an invented feeling cannot reach the screen:
 ```
 
 `Brain` walks the segments: set the face, speak the sentence, next. The speaking
-mouth animation is driven by the speech engine's start/finish callbacks, so it
-moves exactly while there is sound.
+mouth follows the sound itself: `voice/MouthGate.kt` measures the RMS level of
+every 20 ms window of PCM on its way to the player, and the mouth opens above
+-42 dBFS, closes below -50 dBFS once the quiet has lasted 160 ms, and cycles big
+frames when the voice is loud (above -26 dBFS) and small ones when it is quiet.
+A pause shows the face's own mouth; the expression itself does not change. The
+changes are cued on the playback head like the face tags, so they land when the
+sound is heard, not when it is streamed.
 
 The personality lives in `Personality.SYSTEM` — edit it there. Two rules in it
 matter more than the rest: no emoji or markdown (everything is read aloud), and

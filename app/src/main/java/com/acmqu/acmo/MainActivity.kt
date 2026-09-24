@@ -25,6 +25,7 @@ import androidx.lifecycle.lifecycleScope
 import com.acmqu.acmo.databinding.ActivityMainBinding
 import com.acmqu.acmo.face.Expression
 import com.acmqu.acmo.remote.RemoteServer
+import com.acmqu.acmo.remote.RobotLink
 import com.acmqu.acmo.settings.Settings
 import com.acmqu.acmo.settings.SettingsPanel
 import com.acmqu.acmo.voice.ElevenLabs
@@ -34,8 +35,7 @@ import kotlinx.coroutines.launch
 
 /**
  * The one screen. It shows the face, full-screen and always on, and wires it
- * to the [Brain]. Five taps in the top-left corner open the settings card; a
- * tap anywhere else previews the next expression.
+ * to the [Brain]. Five taps in the top-left corner open the settings card.
  */
 class MainActivity : AppCompatActivity() {
 
@@ -45,6 +45,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var brain: Brain
     private lateinit var panel: SettingsPanel
     private lateinit var remote: RemoteServer
+    private lateinit var robot: RobotLink
 
     private val cornerTaps = ArrayDeque<Long>()
     private var devBarBasePadding = 0
@@ -75,6 +76,12 @@ class MainActivity : AppCompatActivity() {
             apology = getString(R.string.speech_apology),
             eleven = eleven,
         )
+        // ACMO's face drives the robot's body language: every expression change
+        // is written to the wheel-control board over the USB cable.
+        robot = RobotLink(applicationContext)
+        robot.start()
+        binding.face.onExpression = { robot.face(it) }
+
         remote = RemoteServer(RemoteServer.PORT, brain, onMain = { block -> runOnUiThread { block() } }, hasKey = eleven != null)
         panel = SettingsPanel(binding.settings, this, settings) { applySettings() }
         panel.remoteStatus = ::remoteStatus
@@ -102,6 +109,9 @@ class MainActivity : AppCompatActivity() {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
+        // Plugging the board in delivers USB_DEVICE_ATTACHED here (singleTask);
+        // connect right away rather than waiting for the next face change.
+        if (::robot.isInitialized) robot.connect()
         takePrompt(intent)
     }
 
@@ -249,7 +259,6 @@ class MainActivity : AppCompatActivity() {
             return
         }
         cornerTaps.clear()
-        brain.previewNext()
     }
 
     // ---- kiosk ----
@@ -291,6 +300,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onDestroy() {
         remote.stopListening()
+        robot.stop()
         brain.stop()
         speaker.shutdown()
         super.onDestroy()

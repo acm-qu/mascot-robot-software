@@ -10,6 +10,12 @@
         android:name="android.hardware.microphone"
         android:required="true" />
 
+    <!-- The wheel-control board is reached over the USB cable (RobotLink), with
+         the tablet as USB host. Not required: ACMO still runs with no board. -->
+    <uses-feature
+        android:name="android.hardware.usb.host"
+        android:required="false" />
+
     <supports-screens
         android:largeScreens="true"
         android:xlargeScreens="true" />
@@ -36,6 +42,15 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+
+            <!-- Plugging the board in offers to open ACMO and grants it USB
+                 access, so RobotLink can reach the board without a dialog. -->
+            <intent-filter>
+                <action android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED" />
+            </intent-filter>
+            <meta-data
+                android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED"
+                android:resource="@xml/device_filter" />
         </activity>
     </application>
 </manifest>

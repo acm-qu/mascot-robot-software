@@ -3,6 +3,7 @@ package com.acmqu.acmo.voice
 import android.media.AudioAttributes
 import android.media.AudioFormat
 import android.media.AudioTrack
+import android.media.PlaybackParams
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
@@ -19,10 +20,14 @@ import java.util.concurrent.TimeUnit
  *
  * [onStart] fires (main thread) when the first chunk plays; [onFinish] once
  * everything queued before [finish] has been heard, or [cancel] threw it away.
+ * [onLevel] fires (main thread) as the sound heard crosses between silence, quiet and
+ * loud -- a [MouthGate] over the bytes as they are queued, cued like everything else --
+ * so the mouth moves with the voice, not with the stream.
  */
 class AudioOut(
     private val onStart: (AudioOut) -> Unit,
     private val onFinish: (AudioOut) -> Unit,
+    private val onLevel: (AudioOut, Int) -> Unit = { _, _ -> },
 ) {
     private class Cue(val atByte: Long, val action: () -> Unit)
 
@@ -33,6 +38,8 @@ class AudioOut(
     @Volatile private var cancelled = false
     private var startedAt = 0L   // uptime when the track started; the audio thread's
     private var half: Byte? = null   // an odd byte carried into the next chunk; one producer thread at a time
+    private val gate = MouthGate()   // the producer thread's too
+    private val effect = VoiceEffect()   // the producer thread's too
 
     init {
         Thread(::loop, "acmo-audio-out").start()
@@ -47,7 +54,16 @@ class AudioOut(
         val data = if (h == null) pcm else byteArrayOf(h) + pcm
         val whole = data.size and 1.inv()
         half = if (whole < data.size) data[whole] else null
-        if (whole > 0) queue.put(if (whole == data.size) data else data.copyOf(whole))
+        if (whole == 0) return
+        // Registered before the bytes are queued, so the cue is in place before they can play.
+        // The mouth is gated on the DRY signal: MouthGate's thresholds are set to ElevenLabs' own
+        // levels, and the effect below would skew them. The effect moves no onsets or gaps, so the
+        // cues still land where the words do.
+        for (c in gate.feed(data, 0, whole)) cue(c.atByte) { onLevel(this, c.level) }
+        // ACMO's robotic voice, ring-modulated in place. Per-sample, so it changes no byte offset the
+        // cues above depend on. The pitch is lowered separately, on the track itself, in open().
+        effect.process(data, 0, whole)
+        queue.put(if (whole == data.size) data else data.copyOf(whole))
     }
 
     /** Runs [action] on the main thread when playback reaches [atByte] of this reply. Nothing after a cancel. */
@@ -66,7 +82,7 @@ class AudioOut(
         cancelled = true
         queue.clear()
         queue.put(END)
-        // Unblocks a write() that is waiting for buffer space.
+        // Stops the sound at once, rather than when the buffer runs dry.
         try {
             track?.pause()
             track?.flush()
@@ -100,10 +116,14 @@ class AudioOut(
                 }
                 var off = 0
                 while (off < chunk.size && !cancelled) {
-                    // Small slices so the cues are checked every 20 ms even while write() blocks.
-                    val n = t.write(chunk, off, minOf(SLICE_BYTES, chunk.size - off))
-                    // 0 means the track is stopped or paused (a cancel), never "try again": spinning here would never end.
-                    if (n <= 0) throw IllegalStateException("AudioTrack.write returned $n")
+                    // Never block in write(): on the tablet a blocked write returns in half-second steps, and a cue
+                    // is only checked between writes. With the buffer full, sleep 20 ms and look at the head instead.
+                    val n = t.write(chunk, off, minOf(SLICE_BYTES, chunk.size - off), AudioTrack.WRITE_NON_BLOCKING)
+                    if (n < 0) throw IllegalStateException("AudioTrack.write returned $n")
+                    if (n == 0) {
+                        if (t.playState != AudioTrack.PLAYSTATE_PLAYING) throw IllegalStateException("AudioTrack stopped")
+                        Thread.sleep(20)
+                    }
                     off += n
                     written += n
                     fireCues(t)
@@ -132,7 +152,8 @@ class AudioOut(
             t.release()
             track = null
             synchronized(cues) { cues.clear() }
-            Log.d(TAG, "played $heard of ${written / BYTES_PER_MS} ms; underruns $underruns")
+            val g = gate.summary()
+            Log.d(TAG, "played $heard of ${written / BYTES_PER_MS} ms; underruns $underruns; mouth open ${g.openWindows} of ${g.windows} windows, ${g.changes} changes, ${g.db}")
             main.post { onFinish(this) }
         }
     }
@@ -169,6 +190,11 @@ class AudioOut(
             .setTransferMode(AudioTrack.MODE_STREAM)
             .build()
         if (t.state == AudioTrack.STATE_INITIALIZED) {
+            // Shift the pitch (PITCH > 1 raises it). speed stays 1.0, so a second of audio still plays in a second --
+            // that is what keeps playbackHeadPosition, and every face cue keyed to it, in step. Change
+            // speed here and those offsets would need scaling. A device that rejects it just plays flat.
+            runCatching { t.playbackParams = PlaybackParams().setPitch(PITCH).setSpeed(1.0f) }
+                .onFailure { Log.w(TAG, "pitch shift unavailable; playing at normal pitch", it) }
             t
         } else {
             Log.e(TAG, "AudioTrack failed to initialise")
@@ -184,8 +210,14 @@ class AudioOut(
         private const val TAG = "AudioOut"
         const val SAMPLE_RATE = 24000
         const val BYTES_PER_FRAME = 2L
+        /** ACMO's voice, tuned here. PITCH < 1 lowers it (tempo unchanged); the ring modulator adds
+         * the robotic buzz -- ROBOT_CARRIER_HZ is its pitch, ROBOT_MIX how strong (0 dry, 1 full).
+         * PITCH > 1 raises the voice, < 1 lowers it. */
+        const val PITCH = 1.25f
+        const val ROBOT_CARRIER_HZ = 55.0
+        const val ROBOT_MIX = 0.35
         const val BYTES_PER_MS = SAMPLE_RATE * BYTES_PER_FRAME / 1000
-        /** A second of buffer: write() blocks once it is full, which paces the thread. */
+        /** A second of buffer: once it is full the thread waits for the head, 20 ms at a time. */
         private const val BUFFER_BYTES = SAMPLE_RATE * 2
         /** 20 ms. */
         private const val SLICE_BYTES = 960

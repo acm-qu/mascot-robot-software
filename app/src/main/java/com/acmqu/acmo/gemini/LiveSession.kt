@@ -41,7 +41,8 @@ class LiveSession(
         /** The model planned the faces for the answer it is about to speak. */
         fun onFaces(feelings: List<Expression>)
 
-        /** A chunk of the model's speech. [bytesBefore] is how much of this reply came before it. Socket thread. */
+        /** A chunk of the model's speech. [bytesBefore] is how much of this reply came before it. Socket
+         * thread. The listener may modify [pcm] in place. */
         fun onAudio(pcm: ByteArray, bytesBefore: Long)
 
         /** A few words the model heard ([input]) or is saying; [audioBytes] is the reply audio delivered so far. */

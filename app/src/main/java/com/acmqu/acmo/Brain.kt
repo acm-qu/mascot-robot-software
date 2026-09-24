@@ -79,7 +79,6 @@ class Brain(
     private var listenJob: Job? = null    // gives up on a wake that leads nowhere
     private var replyJob: Job? = null     // gives up on a model that never answers, or never stops
     private var forgetJob: Job? = null    // closes a quiet session after MEMORY_MS
-    private var previewJob: Job? = null
 
     // The reply being spoken. Whichever thread sees the reply first creates the player.
     @Volatile private var out: AudioOut? = null
@@ -144,7 +143,6 @@ class Brain(
         listenJob?.cancel()
         replyJob?.cancel()
         forgetJob?.cancel()
-        previewJob?.cancel()
         mic?.stop()
         mic = null
         val o = out
@@ -194,24 +192,12 @@ class Brain(
         // ACMO on a device with no microphone, or before the model has loaded.
         if (state != State.IDLE && state != State.LISTENING && state != State.BOOTING) return
         listenJob?.cancel()
-        previewJob?.cancel()
         mic?.setMode(MicPipeline.Mode.PAUSED)
         state = State.THINKING
         face.setExpression(Expression.EXCITED)
         Log.i(TAG, "typed: \"$prompt\"")
         openSession().sendText(prompt)
         armReplyTimeout()
-    }
-
-    /** A tap on the idle face shows the next expression for a few seconds -- a preview, nothing more. */
-    fun previewNext() {
-        if (state != State.IDLE) return
-        previewJob?.cancel()
-        face.setExpression(face.expression.next())
-        previewJob = scope.launch {
-            delay(4000)
-            if (state == State.IDLE) face.setExpression(Expression.IDLE)
-        }
     }
 
     // ---- MicPipeline.Listener (main thread) ----
@@ -245,7 +231,6 @@ class Brain(
     // ---- listening ----
 
     private fun listen() {
-        previewJob?.cancel()
         state = State.LISTENING
         face.setExpression(Expression.EXCITED)
         val s = openSession()
@@ -403,7 +388,7 @@ class Brain(
         out?.let { return it }
         synchronized(this) {
             out?.let { return it }
-            return AudioOut(onStart = ::onSpeechStart, onFinish = ::onSpeechEnd).also { out = it }
+            return AudioOut(onStart = ::onSpeechStart, onFinish = ::onSpeechEnd, onLevel = ::onSpeechLevel).also { out = it }
         }
     }
 
@@ -426,6 +411,12 @@ class Brain(
                 o.cancel()
             }
         }
+    }
+
+    /** The voice heard has gone silent (0), quiet (1) or loud (2): the mouth follows. */
+    private fun onSpeechLevel(o: AudioOut, level: Int) {
+        if (o !== out) return
+        face.setMouthLevel(level)
     }
 
     private fun onSpeechEnd(o: AudioOut) {
@@ -480,7 +471,6 @@ class Brain(
         val wasConversing = conversing   // read before the player and the jobs are gone
         listenJob?.cancel()
         replyJob?.cancel()
-        previewJob?.cancel()
         mic?.sink = null
         mic?.setMode(MicPipeline.Mode.PAUSED)
         val o = out
@@ -517,7 +507,6 @@ class Brain(
         }
         listenJob?.cancel()
         replyJob?.cancel()
-        previewJob?.cancel()
         mic?.sink = null
         mic?.setMode(MicPipeline.Mode.PAUSED)
         playing = entry   // first: from here the session's audio is turned away, so a late reply cannot make this line's player
