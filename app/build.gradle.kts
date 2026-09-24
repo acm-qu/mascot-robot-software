@@ -31,7 +31,9 @@ android {
         targetSdk = 36
         versionCode = 2
         versionName = "2.0"
-
+        ndk {
+            abiFilters += listOf("armeabi-v7a", "arm64-v8a")
+        }
         buildConfigField("String", "GEMINI_API_KEY", "\"$geminiApiKey\"")
         // The remote console's voice. A blank voice means ElevenLabs.DEFAULT_VOICE_ID.
         buildConfigField("String", "ELEVENLABS_API_KEY", "\"$elevenLabsApiKey\"")
@@ -121,6 +123,10 @@ dependencies {
     // The remote console's server on the tablet.
     implementation(libs.nanohttpd)
     implementation(libs.vosk.android)
+
+    // Arduino
+    implementation(libs.jserialcomm)
+
     // Vosk reaches its native library through JNA; its POM asks for the AAR flavour.
     implementation("net.java.dev.jna:jna:${libs.versions.jna.get()}@aar")
 
