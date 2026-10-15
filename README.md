@@ -143,8 +143,9 @@ same face twice in a row is not sent again.
 
 The board is reached over the **USB cable**, not WiFi: it is a USB CDC-ACM
 device (its `Serial`), and the tablet is the USB host. `RobotLink` opens the
-device's bulk endpoints and writes to it; a background reader drains the
-board's log output so its serial buffer cannot back up. It is write-only and
+device's bulk endpoints, configures CDC serial as **115200 baud, 8N1**, and
+writes to it; a background reader drains the board's log output so its serial
+buffer cannot back up. It is write-only and
 best-effort — no board, no permission, or a pulled cable and the face just
 does not reach it, retried on the next change. When the link opens it sends
 the latest face, so the robot catches up with the screen.

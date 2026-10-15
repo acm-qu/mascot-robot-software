@@ -135,6 +135,13 @@ class RobotLink(private val context: Context) {
         if (io.isShutdown) return
         io.execute {
             close()
+            val controlInterface = (0 until device.interfaceCount)
+                .map(device::getInterface)
+                .firstOrNull { it.interfaceClass == UsbConstants.USB_CLASS_COMM }
+            if (controlInterface == null) {
+                Log.w(TAG, "no CDC communications interface on ${device.deviceName}")
+                return@execute
+            }
             for (i in 0 until device.interfaceCount) {
                 val intf = device.getInterface(i)
                 if (intf.interfaceClass != UsbConstants.USB_CLASS_CDC_DATA) continue
@@ -153,9 +160,30 @@ class RobotLink(private val context: Context) {
                     c.close()
                     continue
                 }
+                // CDC line coding is addressed to the communications interface;
+                // its data interface carries the bulk endpoints.
+                val lineCoding = byteArrayOf(
+                    (BAUD_RATE and 0xff).toByte(),
+                    ((BAUD_RATE shr 8) and 0xff).toByte(),
+                    ((BAUD_RATE shr 16) and 0xff).toByte(),
+                    ((BAUD_RATE shr 24) and 0xff).toByte(),
+                    0, // one stop bit
+                    0, // no parity
+                    8  // eight data bits
+                )
+                val configured = c.controlTransfer(
+                    0x21, SET_LINE_CODING, 0, controlInterface.id,
+                    lineCoding, lineCoding.size, WRITE_TIMEOUT_MS
+                )
+                if (configured != lineCoding.size) {
+                    Log.w(TAG, "failed to configure CDC baud rate $BAUD_RATE; closing link")
+                    c.releaseInterface(intf)
+                    c.close()
+                    return@execute
+                }
                 // Assert DTR/RTS so the board treats the link as live. Best effort:
                 // native-USB CDC ignores it, and a failure does not stop the writes.
-                c.controlTransfer(0x21, SET_CONTROL_LINE_STATE, 0x03, intf.id, null, 0, 200)
+                c.controlTransfer(0x21, SET_CONTROL_LINE_STATE, 0x03, controlInterface.id, null, 0, 200)
 
                 conn = c
                 iface = intf
@@ -207,6 +235,8 @@ class RobotLink(private val context: Context) {
         private const val TAG = "RobotLink"
         private const val ACTION_PERMISSION = "com.acmqu.acmo.USB_PERMISSION"
         private const val ARDUINO_VID = 0x2341   // Arduino SA -- the UNO R4
+        private const val BAUD_RATE = 115200
+        private const val SET_LINE_CODING = 0x20
         private const val SET_CONTROL_LINE_STATE = 0x22
         private const val WRITE_TIMEOUT_MS = 200
         private const val DRAIN_TIMEOUT_MS = 200
