@@ -19,13 +19,14 @@ import java.util.concurrent.Executors
 /**
  * Sends ACMO's current face to the wheel-control board over the USB cable. The
  * board is a USB CDC-ACM device -- its `Serial` -- and this app is the USB host.
- * On every expression change it writes one line, `face:<name>\n`, to the board's
- * bulk-OUT endpoint; the board reads it in serviceVoice() and turns it into a
- * small movement or servo gesture (faces.ino / voice-activated.ino).
+ * On every expression change it writes one line, the expression's label (`surprised\n`),
+ * to the board's bulk-OUT endpoint; the board reads it in readSerial() and runCommand()
+ * turns it into a small movement or servo gesture (serial-link.ino / routines.ino).
  *
  * Write-only and best-effort. If the cable is out, permission is not granted, or
  * the write fails, [face] quietly does nothing and the next change retries the
- * connection. A single background thread carries the writes, so a burst of face
+ * connection; whenever the link opens it sends the latest face, so the robot
+ * catches up with the screen. A single background thread carries the writes, so a burst of face
  * changes while ACMO talks never blocks the UI thread that calls [face].
  *
  * A background reader drains the board's incoming bytes (its own log output) and
@@ -47,6 +48,7 @@ class RobotLink(private val context: Context) {
     @Volatile private var drain: Thread? = null
     @Volatile private var reachable = false   // so a state change logs once, not per face
     @Volatile private var asking = false      // a permission request is outstanding; do not stack another
+    @Volatile private var latest: Expression? = null   // the last face asked for; sent again when the link opens
 
     private val permission = object : BroadcastReceiver() {
         override fun onReceive(c: Context, i: Intent) {
@@ -78,21 +80,30 @@ class RobotLink(private val context: Context) {
         io.shutdown()
     }
 
-    /** Any thread. Sends the new face; a no-op (and a reconnect attempt) if the board is not open. */
+    /**
+     * Any thread. Sends [e] to the board. If the board is not open this tries to
+     * connect instead, and the link sends [latest] once it is up. [com.acmqu.acmo.Brain]
+     * calls it every time it changes the face.
+     */
     fun face(e: Expression) {
-        val c = conn
-        val o = out
-        if (c == null || o == null) {
+        latest = e
+        if (io.isShutdown) return
+        if (out == null) {
             connect()
             return
         }
-        val line = "face:${e.name.lowercase()}\n".toByteArray()
-        io.execute {
-            val n = c.bulkTransfer(o, line, line.size, WRITE_TIMEOUT_MS)
-            if (n < 0) {
-                Log.w(TAG, "write failed; dropping the link")
-                close()
-            }
+        io.execute { write(e) }
+    }
+
+    // io thread. One line, the expression's label -- the word runCommand() matches.
+    private fun write(e: Expression) {
+        val c = conn ?: return
+        val o = out ?: return
+        val line = "${e.label}\n".toByteArray()
+        val n = c.bulkTransfer(o, line, line.size, WRITE_TIMEOUT_MS)
+        if (n < 0) {
+            Log.w(TAG, "write failed; dropping the link")
+            close()
         }
     }
 
@@ -121,6 +132,7 @@ class RobotLink(private val context: Context) {
     }
 
     private fun open(device: UsbDevice) {
+        if (io.isShutdown) return
         io.execute {
             close()
             for (i in 0 until device.interfaceCount) {
@@ -154,6 +166,8 @@ class RobotLink(private val context: Context) {
                     reachable = true
                     Log.i(TAG, "robot USB open: ${device.productName ?: device.deviceName}")
                 }
+                // Whatever face was asked for while the link was down, so the robot matches the screen.
+                latest?.let { write(it) }
                 return@execute
             }
             Log.w(TAG, "no CDC data interface on ${device.deviceName}")
