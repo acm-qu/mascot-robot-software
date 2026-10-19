@@ -14,6 +14,7 @@ import com.acmqu.acmo.remote.FaceCues
 import com.acmqu.acmo.remote.Failure
 import com.acmqu.acmo.remote.Line
 import com.acmqu.acmo.remote.RemoteServer
+import com.acmqu.acmo.remote.RobotLink
 import com.acmqu.acmo.remote.Said
 import com.acmqu.acmo.remote.Snapshot
 import com.acmqu.acmo.remote.Tags
@@ -57,6 +58,8 @@ class Brain(
     private val apology: String,
     /** The console's voice; null when no ElevenLabs key was built in. */
     private val eleven: ElevenLabs?,
+    /** The wheel-control board over USB: every face set here is also written to it. */
+    private val robot: RobotLink,
 ) : MicPipeline.Listener, RemoteServer.Host {
 
     enum class State { BOOTING, IDLE, LISTENING, THINKING, SPEAKING }
@@ -194,7 +197,7 @@ class Brain(
         listenJob?.cancel()
         mic?.setMode(MicPipeline.Mode.PAUSED)
         state = State.THINKING
-        face.setExpression(Expression.EXCITED)
+        setFace(Expression.EXCITED)
         Log.i(TAG, "typed: \"$prompt\"")
         openSession().sendText(prompt)
         armReplyTimeout()
@@ -225,14 +228,14 @@ class Brain(
 
     override fun onMicError(message: String) {
         Log.e(TAG, "microphone: $message")
-        face.setExpression(Expression.SAD)
+        setFace(Expression.SAD)
     }
 
     // ---- listening ----
 
     private fun listen() {
         state = State.LISTENING
-        face.setExpression(Expression.EXCITED)
+        setFace(Expression.EXCITED)
         val s = openSession()
         mic?.sink = s::sendAudio
         mic?.setMode(MicPipeline.Mode.STREAM)
@@ -247,7 +250,7 @@ class Brain(
     private fun shrug() {
         listenJob?.cancel()
         mic?.setMode(MicPipeline.Mode.PAUSED)
-        face.setExpression(Expression.SURPRISED)
+        setFace(Expression.SURPRISED)
         replyJob?.cancel()
         replyJob = scope.launch {
             delay(1500)
@@ -311,7 +314,7 @@ class Brain(
             replyBegins()
             faces = feelings
             faceIndex = 0
-            face.setExpression(feelings.first())
+            setFace(feelings.first())
             Log.i(TAG, "faces: ${feelings.joinToString(" ") { it.label }}")
         }
 
@@ -337,7 +340,7 @@ class Brain(
             if (Sentence.endsIn(text) && faceIndex + 1 < faces.size) {
                 val next = faces[++faceIndex]
                 player().cue(audioBytes + CUE_LEAD_BYTES) {
-                    if (state == State.SPEAKING) face.setExpression(next)
+                    if (state == State.SPEAKING) setFace(next)
                 }
             }
         }
@@ -397,7 +400,7 @@ class Brain(
         if (state == State.LISTENING || state == State.THINKING) {
             replyBegins()
             state = State.SPEAKING
-            if (faces.isEmpty()) face.setExpression(Expression.HAPPY)   // it spoke without planning faces
+            if (faces.isEmpty()) setFace(Expression.HAPPY)   // it spoke without planning faces
         }
         playing?.let { Log.i(TAG, "line #${it.id} playing") }
         face.setSpeaking(true)
@@ -457,6 +460,16 @@ class Brain(
     }
 
     override fun snapshot(): Snapshot = Snapshot(state, face.expression, playing, queue.toList(), lastFailure)
+
+    /**
+     * Shows [e] on the screen and, at the same time, sends it to the robot over USB serial.
+     * The face already showing is not set again, so the board never gets the same line twice in a row.
+     */
+    private fun setFace(e: Expression) {
+        if (e == face.expression) return
+        face.setExpression(e)
+        robot.face(e)
+    }
 
     /** Cancels the remote line playing and forgets the ones waiting. */
     private fun dropLines() {
@@ -524,7 +537,7 @@ class Brain(
         val tags = Tags.faces(text)
         val opening = Tags.opening(text) ?: entry.line.feeling
         val expressive = Tags.hasTags(text)
-        face.setExpression(opening)
+        setFace(opening)
         Log.i(TAG, "line #${entry.id} (${opening.label}${if (expressive) ", expressive" else ""}): \"$text\"")
         // The player is made here, on the main thread, so the socket thread only ever feeds this one.
         val o = player()
@@ -538,7 +551,7 @@ class Brain(
                 // and guarded by identity: a stopped line's cue must never touch the next line's face.
                 for (c in cues.feed(atByte)) {
                     Log.i(TAG, "line #${entry.id}: cue ${c.feeling.label} at ${c.atByte / AudioOut.BYTES_PER_MS} ms")
-                    o.cue(c.atByte) { if (playing === entry) face.setExpression(c.feeling) }
+                    o.cue(c.atByte) { if (playing === entry) setFace(c.feeling) }
                 }
             }
 
@@ -579,7 +592,7 @@ class Brain(
         call = null
         playing = null
         face.setSpeaking(false)
-        face.setExpression(Expression.SAD)
+        setFace(Expression.SAD)
         replyJob?.cancel()
         replyJob = scope.launch {
             delay(FAIL_PAUSE_MS)
@@ -598,7 +611,7 @@ class Brain(
         out = null
         o?.cancel()
         face.setSpeaking(false)
-        face.setExpression(Expression.SAD)
+        setFace(Expression.SAD)
         // Kept in replyJob so a line cutting in can stop the apology from going idle underneath it.
         replyJob = scope.launch {
             try {
@@ -622,7 +635,7 @@ class Brain(
         faceIndex = 0
         playing = null
         face.setSpeaking(false)
-        face.setExpression(Expression.IDLE)
+        setFace(Expression.IDLE)
         mic?.sink = null
         mic?.setMode(idleMode())
         if (sessionExpiring) closeSession()

@@ -169,16 +169,10 @@ class FaceView @JvmOverloads constructor(context: Context, attrs: AttributeSet? 
         invalidate()
     }
 
-    /** Fires on the main thread when the shown expression actually changes (or is
-     *  first switched from the initial one), with the new expression. MainActivity
-     *  uses it to tell the robot which face to react to. */
-    var onExpression: ((Expression) -> Unit)? = null
-
     fun setExpression(e: Expression) {
         if (e == expression) return
         removeCallbacks(swapRunnable)
         expression = e
-        onExpression?.invoke(e)
         hiding = true
         applyEyes()
         applyMarks()

@@ -135,17 +135,20 @@ software/
 ## The robot link
 
 ACMO's face drives the wheel-control board's body language. Every time the
-on-screen expression changes, `FaceView.onExpression` fires and `RobotLink`
-writes one line to the board — `face:happy`, `face:angry`, and so on — which
-the board turns into a small nudge or servo gesture (see
-`hardware/wheel-control`, *Faces*).
+`Brain` changes the expression, it shows it on screen and hands it to
+`RobotLink`, which writes one line to the board — `happy`, `angry`, and so on
+(the expression's label) — and the board's `runCommand()` turns it into a small
+nudge or servo gesture (see `hardware/wheel-control`, `serial-link.ino`). The
+same face twice in a row is not sent again.
 
 The board is reached over the **USB cable**, not WiFi: it is a USB CDC-ACM
 device (its `Serial`), and the tablet is the USB host. `RobotLink` opens the
-device's bulk endpoints and writes to it; a background reader drains the
-board's log output so its serial buffer cannot back up. It is write-only and
+device's bulk endpoints, configures CDC serial as **115200 baud, 8N1**, and
+writes to it; a background reader drains the board's log output so its serial
+buffer cannot back up. It is write-only and
 best-effort — no board, no permission, or a pulled cable and the face just
-does not reach it, retried on the next change.
+does not reach it, retried on the next change. When the link opens it sends
+the latest face, so the robot catches up with the screen.
 
 `AndroidManifest.xml` declares the USB host feature and a
 `USB_DEVICE_ATTACHED` filter (`res/xml/device_filter.xml`, Arduino vendor id

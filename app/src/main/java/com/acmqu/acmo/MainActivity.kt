@@ -68,6 +68,10 @@ class MainActivity : AppCompatActivity() {
             apiKey = BuildConfig.ELEVENLABS_API_KEY,
             voiceId = BuildConfig.ELEVENLABS_VOICE_ID.ifBlank { ElevenLabs.DEFAULT_VOICE_ID },
         )
+        // ACMO's face drives the robot's body language: every expression the Brain
+        // sets is also written to the wheel-control board over the USB cable.
+        robot = RobotLink(applicationContext)
+        robot.start()
         brain = Brain(
             face = binding.face,
             speaker = speaker,
@@ -75,12 +79,8 @@ class MainActivity : AppCompatActivity() {
             scope = lifecycleScope,
             apology = getString(R.string.speech_apology),
             eleven = eleven,
+            robot = robot,
         )
-        // ACMO's face drives the robot's body language: every expression change
-        // is written to the wheel-control board over the USB cable.
-        robot = RobotLink(applicationContext)
-        robot.start()
-        binding.face.onExpression = { robot.face(it) }
 
         remote = RemoteServer(RemoteServer.PORT, brain, onMain = { block -> runOnUiThread { block() } }, hasKey = eleven != null)
         panel = SettingsPanel(binding.settings, this, settings) { applySettings() }
@@ -135,6 +135,7 @@ class MainActivity : AppCompatActivity() {
             } catch (e: Exception) {
                 Log.e(TAG, "could not load the wake-word model", e)
                 binding.face.setExpression(Expression.SAD)
+                robot.face(Expression.SAD)
                 say(R.string.speech_no_ears)
             }
         }
@@ -300,8 +301,8 @@ class MainActivity : AppCompatActivity() {
 
     override fun onDestroy() {
         remote.stopListening()
-        robot.stop()
         brain.stop()
+        robot.stop()
         speaker.shutdown()
         super.onDestroy()
     }
