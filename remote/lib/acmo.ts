@@ -35,7 +35,7 @@ export type State = {
   error: { id: number; message: string } | null;
 };
 
-export const DEFAULT_ADDRESS = "http://localhost:8765";
+export const DEFAULT_ADDRESS = "http://10.20.54.183:8765";
 
 const TIMEOUT_MS = 5000;
 

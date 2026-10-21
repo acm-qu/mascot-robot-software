@@ -91,4 +91,46 @@ object Sentence {
     private val enders = setOf('.', '!', '?', '؟', '؛', '。', '！', '？')
 
     fun endsIn(text: String): Boolean = text.any { it in enders }
+
+    /**
+     * Where the pause before each sentence after the first begins in [text]: the first space after
+     * an ender, counted in code points, the way ElevenLabs times characters. An ender with no space
+     * after it (3.14) ends nothing, and neither does one with nothing after its space.
+     */
+    fun pauses(text: String): List<Int> {
+        val found = mutableListOf<Int>()
+        var ended = false   // past an ender, and only enders since
+        var pause = -1      // the first space after it, once there is one
+        var at = 0          // code points so far
+        var i = 0
+        while (i < text.length) {
+            val c = text.codePointAt(i)
+            when {
+                c < 0x10000 && c.toChar() in enders -> if (pause < 0) ended = true
+                Character.isWhitespace(c) -> if (ended && pause < 0) pause = at
+                else -> {
+                    if (pause >= 0) found += pause
+                    ended = false
+                    pause = -1
+                }
+            }
+            at++
+            i += Character.charCount(c)
+        }
+        return found
+    }
+
+    /**
+     * How many chars of [text], a transcript still arriving, are whole sentences: up to the last
+     * ender followed by a space or by the end of the text so far. 0 when no sentence has ended yet.
+     */
+    fun whole(text: String): Int {
+        var end = text.length
+        while (end > 0 && text[end - 1].isWhitespace()) end--
+        if (end > 0 && text[end - 1] in enders) return end
+        for (i in end - 1 downTo 1) {
+            if (text[i].isWhitespace() && text[i - 1] in enders) return i
+        }
+        return 0
+    }
 }

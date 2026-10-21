@@ -61,11 +61,14 @@ class ElevenLabs(
     /**
      * Starts streaming [text] into [sink]. An [expressive] line goes to the v3 model, which reads a
      * `[tag]` as direction; a plain one to the fast model, which would read it out loud. Cancel the
-     * returned call to stop; the sink then hears nothing more.
+     * returned call to stop; the sink then hears nothing more. [previous] is what was said just
+     * before, when [text] continues it -- ElevenLabs uses it to carry the intonation across.
      */
-    fun stream(text: String, sink: Sink, expressive: Boolean = false): Call {
+    fun stream(text: String, sink: Sink, expressive: Boolean = false, previous: String = ""): Call {
         val model = if (expressive) EXPRESSIVE_MODEL else FAST_MODEL
-        val body = JSONObject().put("text", text).put("model_id", model).toString()
+        val json = JSONObject().put("text", text).put("model_id", model)
+        if (previous.isNotEmpty()) json.put("previous_text", previous)
+        val body = json.toString()
         val request = Request.Builder()
             .url(url)
             .header("xi-api-key", apiKey)

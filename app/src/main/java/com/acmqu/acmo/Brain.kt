@@ -11,6 +11,7 @@ import com.acmqu.acmo.gemini.Personality
 import com.acmqu.acmo.gemini.Sentence
 import com.acmqu.acmo.remote.Entry
 import com.acmqu.acmo.remote.FaceCues
+import com.acmqu.acmo.remote.FaceTag
 import com.acmqu.acmo.remote.Failure
 import com.acmqu.acmo.remote.Line
 import com.acmqu.acmo.remote.RemoteServer
@@ -38,8 +39,10 @@ import org.vosk.Model
  * The wake word is heard on the tablet; from then on the microphone streams
  * into a Gemini Live session, which decides when the person has finished,
  * plans the faces for its answer (one per sentence, through a tool call) and
- * speaks it. The face is idle while waiting, excited from the wake word until
- * the answer begins, then walks the planned faces as the sentences are heard.
+ * writes it. Its words are spoken in the ElevenLabs voice, a sentence at a time
+ * as the transcript finishes each one ([Reply]); Gemini's own voice is held back
+ * and played only if ElevenLabs fails. The face is idle while waiting, excited from the wake word
+ * until the answer begins, then walks the planned faces as the sentences are heard.
  *
  * One session is kept open across exchanges so that follow-ups remember the
  * conversation; it is dropped after [MEMORY_MS] of quiet. Errors are a sad
@@ -86,9 +89,11 @@ class Brain(
     // The reply being spoken. Whichever thread sees the reply first creates the player.
     @Volatile private var out: AudioOut? = null
     private var faces: List<Expression> = emptyList()
-    private var faceIndex = 0
     private val heard = StringBuilder()
     private val said = StringBuilder()
+
+    // The reply of the exchange in progress, spoken sentence by sentence in the ElevenLabs voice.
+    @Volatile private var reply: Reply? = null   // read on the socket thread too
 
     // Lines from the console: the one playing, and the ones waiting their turn.
     private val queue = ArrayDeque<Entry>()
@@ -152,6 +157,7 @@ class Brain(
         out = null
         o?.cancel()
         dropLines()
+        dropReply()
         closeSession()
         speaker.stop()
         state = State.BOOTING
@@ -167,6 +173,7 @@ class Brain(
             out = null
             o?.cancel()
             dropLines()
+            dropReply()
             speaker.stop()
             goIdle()
             mic?.setMode(MicPipeline.Mode.PAUSED)
@@ -197,6 +204,7 @@ class Brain(
         listenJob?.cancel()
         mic?.setMode(MicPipeline.Mode.PAUSED)
         state = State.THINKING
+        newReply()
         setFace(Expression.EXCITED)
         Log.i(TAG, "typed: \"$prompt\"")
         openSession().sendText(prompt)
@@ -235,6 +243,7 @@ class Brain(
 
     private fun listen() {
         state = State.LISTENING
+        newReply()
         setFace(Expression.EXCITED)
         val s = openSession()
         mic?.sink = s::sendAudio
@@ -313,7 +322,6 @@ class Brain(
             if (!current() || (state != State.LISTENING && state != State.THINKING)) return
             replyBegins()
             faces = feelings
-            faceIndex = 0
             setFace(feelings.first())
             Log.i(TAG, "faces: ${feelings.joinToString(" ") { it.label }}")
         }
@@ -325,7 +333,8 @@ class Brain(
             val st = state
             if (st != State.LISTENING && st != State.THINKING && st != State.SPEAKING) return
             mic?.setMode(MicPipeline.Mode.PAUSED)   // the robot must not hear itself
-            player().play(pcm)
+            val r = reply ?: return
+            if (r.audio(pcm)) main.post { if (current() && state == State.LISTENING) replyBegins() }
         }
 
         override fun onTranscript(text: String, input: Boolean, audioBytes: Long) {
@@ -335,14 +344,8 @@ class Brain(
                 return
             }
             said.append(text)
-            if (state != State.THINKING && state != State.SPEAKING) return
-            // The next sentence gets the next planned face, once the audio has got there.
-            if (Sentence.endsIn(text) && faceIndex + 1 < faces.size) {
-                val next = faces[++faceIndex]
-                player().cue(audioBytes + CUE_LEAD_BYTES) {
-                    if (state == State.SPEAKING) setFace(next)
-                }
-            }
+            if (state != State.LISTENING && state != State.THINKING && state != State.SPEAKING) return
+            if (playing == null) reply?.transcript(text, audioBytes)
         }
 
         override fun onTurnComplete(audioBytes: Long) {
@@ -352,13 +355,15 @@ class Brain(
             if (said.isNotEmpty()) Log.i(TAG, "said: \"${said.trim()}\"")
             heard.clear()
             said.clear()
-            if (playing == null) out?.finish()   // a console line's player is not the model's to end
+            if (playing == null) reply?.turnDone() else dropReply()   // a console line has the player
         }
 
         override fun onInterrupted() {
             if (!current()) return
             Log.i(TAG, "interrupted")
-            if (playing == null) out?.cancel()
+            if (playing != null) return
+            dropReply()
+            out?.cancel()
         }
 
         override fun onGoAway(timeLeftMs: Long) {
@@ -386,6 +391,206 @@ class Brain(
     }
 
     // ---- the voice ----
+
+    /** A new exchange: whatever was left of the last reply is forgotten. */
+    private fun newReply() {
+        dropReply()
+        reply = Reply()
+    }
+
+    /** Forgets the reply in progress, and stops ElevenLabs saying it. The players are the caller's to stop. */
+    private fun dropReply() {
+        reply?.drop()
+        reply = null
+    }
+
+    /**
+     * One Gemini reply on its way out. Each sentence goes to ElevenLabs as soon as Gemini's transcript
+     * finishes it, and they play one after another through one player, so ACMO starts talking about a
+     * sentence into Gemini's answer rather than after all of it. The planned faces change where each
+     * sentence begins. Gemini's own audio is held back all the while; if ElevenLabs fails, [fallBack]
+     * plays it from the start, and the rest of it as it arrives.
+     *
+     * Main thread, apart from [audio]. ElevenLabs downloads one piece at a time, but much faster than
+     * it plays, so the next piece is usually in the player before the one ahead of it is heard out.
+     */
+    private inner class Reply {
+        // Gemini's voice: what has come and not been played, and its player once fallen back. Guarded by held.
+        private val held = ArrayList<ByteArray>()
+        private var gemini: AudioOut? = null
+        private var fallen = eleven == null   // written on the main thread only
+        private val geminiCues = ArrayList<Pair<Long, Expression>>()   // where Gemini's voice changes face
+        private var geminiFace = 0
+
+        // The ElevenLabs voice.
+        private val text = StringBuilder()          // Gemini's transcript so far
+        private var sent = 0                        // how much of it has been handed out as pieces
+        private val spoken = StringBuilder()        // the pieces handed out, for ElevenLabs' continuity
+        private var sentences = 0                   // sentences in those pieces
+        private val pending = ArrayDeque<String>()  // pieces waiting for the one ahead to download
+        private var call: Call? = null              // the piece downloading
+        private var voice: AudioOut? = null
+        @Volatile private var fed = 0L              // bytes given to [voice]; OkHttp's thread, one call at a time
+        private var done = false                    // Gemini's turn is over
+        @Volatile private var dropped = false
+
+        /** Some of Gemini's audio. Socket thread. Returns whether it is the first. */
+        fun audio(pcm: ByteArray): Boolean = synchronized(held) {
+            when {
+                dropped -> false
+                fallen -> {
+                    val o = gemini
+                    if (o != null) {
+                        o.play(pcm)
+                        false
+                    } else {
+                        startGemini(listOf(pcm))
+                        true
+                    }
+                }
+                else -> {
+                    held.add(pcm)
+                    held.size == 1
+                }
+            }
+        }
+
+        /** A few words of Gemini's transcript; [audioBytes] of its audio had come with them. */
+        fun transcript(words: String, audioBytes: Long) {
+            if (dropped) return
+            text.append(words)
+            // In Gemini's voice, the next sentence gets the next planned face once the audio has got there.
+            if (Sentence.endsIn(words) && geminiFace + 1 < faces.size) {
+                val cue = audioBytes + CUE_LEAD_BYTES to faces[++geminiFace]
+                synchronized(held) { gemini?.let { cueGemini(it, cue) } ?: geminiCues.add(cue) }
+            }
+            if (!fallen) send(Sentence.whole(text.substring(sent)))
+        }
+
+        /** Gemini's turn is over: the rest of the transcript goes out, whole sentences or not. */
+        fun turnDone() {
+            if (dropped) return
+            done = true
+            if (fallen) {
+                finishGemini()
+                return
+            }
+            send(text.length - sent)
+            when {
+                sentences == 0 && pending.isEmpty() && call == null -> fallBack("no transcript")
+                pending.isEmpty() && call == null -> voice?.finish()
+            }
+        }
+
+        fun drop() {
+            dropped = true
+            call?.cancel()
+            call = null
+            pending.clear()
+            synchronized(held) { held.clear() }
+        }
+
+        /** The next [length] chars of the transcript, as one piece for ElevenLabs. */
+        private fun send(length: Int) {
+            if (length == 0) return
+            val piece = text.substring(sent, sent + length).trim()
+            sent += length
+            if (piece.isEmpty()) return
+            pending.addLast(piece)
+            next()
+        }
+
+        /** Starts the next piece downloading, unless one already is. */
+        private fun next() {
+            if (call != null || fallen || dropped) return
+            val el = eleven ?: return
+            val piece = pending.removeFirstOrNull() ?: return
+            val o = voice ?: player().also {
+                voice = it
+                Log.i(TAG, "reply in the ElevenLabs voice")
+            }
+            val base = fed   // where this piece starts in the player: the earlier pieces have all arrived
+            val first = sentences
+            val pauses = Sentence.pauses(piece)
+            sentences += 1 + pauses.size
+            // The piece's first sentence takes its face where the piece starts; any after it, at their pauses.
+            if (first > 0) faces.getOrNull(first)?.let { cueVoice(o, base, it) }
+            val cues = FaceCues(pauses.mapIndexedNotNull { i, at -> faces.getOrNull(first + 1 + i)?.let { FaceTag("", at, it) } })
+            val previous = spoken.toString()
+            if (spoken.isNotEmpty()) spoken.append(' ')
+            spoken.append(piece)
+            Log.i(TAG, "reply piece at ${base / AudioOut.BYTES_PER_MS} ms: \"$piece\"")
+            call = el.stream(piece, previous = previous, sink = object : ElevenLabs.Sink {
+                override fun timed(atByte: LongArray) {
+                    for (c in cues.feed(atByte)) cueVoice(o, base + c.atByte, c.feeling)
+                }
+
+                override fun play(pcm: ByteArray) {
+                    fed += pcm.size
+                    o.play(pcm)
+                }
+
+                override fun finish() {
+                    main.post { pieceDone() }
+                }
+
+                override fun fail(message: String) {
+                    main.post { fallBack(message) }
+                }
+            })
+        }
+
+        /** A piece has fully arrived: the next one starts, or, if that was the last, the player may finish. */
+        private fun pieceDone() {
+            if (dropped || fallen) return
+            call = null
+            if (pending.isNotEmpty()) next() else if (done) voice?.finish()
+        }
+
+        private fun cueVoice(o: AudioOut, atByte: Long, feeling: Expression) {
+            Log.i(TAG, "reply: cue ${feeling.label} at ${atByte / AudioOut.BYTES_PER_MS} ms")
+            o.cue(atByte) { if (out === o && state == State.SPEAKING) setFace(feeling) }
+        }
+
+        /** ElevenLabs could not say it: Gemini's voice takes over, from the start. */
+        private fun fallBack(why: String) {
+            if (fallen || dropped) return
+            Log.w(TAG, "$why; the reply falls back to Gemini's voice")
+            call?.cancel()
+            call = null
+            pending.clear()
+            voice?.let {
+                if (out === it) out = null
+                it.cancel()
+            }
+            voice = null
+            faces.firstOrNull()?.let(::setFace)   // ElevenLabs may have got partway through the faces
+            synchronized(held) {
+                fallen = true
+                if (held.isNotEmpty()) startGemini(held.toList())
+                held.clear()
+            }
+            if (done) finishGemini()
+        }
+
+        /** Gemini's player, fed [audio] and the faces cued so far. Under the lock on held. */
+        private fun startGemini(audio: List<ByteArray>) {
+            val o = player()
+            gemini = o
+            geminiCues.forEach { cueGemini(o, it) }
+            geminiCues.clear()
+            audio.forEach(o::play)
+        }
+
+        private fun finishGemini() {
+            val o = synchronized(held) { gemini }
+            if (o != null) o.finish() else fail("no audio for the reply")
+        }
+
+        private fun cueGemini(o: AudioOut, cue: Pair<Long, Expression>) {
+            o.cue(cue.first) { if (out === o && state == State.SPEAKING) setFace(cue.second) }
+        }
+    }
 
     private fun player(): AudioOut {
         out?.let { return it }
@@ -451,6 +656,16 @@ class Brain(
         return Said(entry.id, ahead)
     }
 
+    /**
+     * The face was tapped: if ACMO is answering or speaking -- a reply or a console line -- it stops,
+     * with the sentences still on their way to ElevenLabs and the console's queue. Otherwise nothing.
+     */
+    fun stopTalking() {
+        if (state != State.THINKING && state != State.SPEAKING) return
+        Log.i(TAG, "tapped")
+        hush()
+    }
+
     /** Be quiet: whatever is playing stops, the queue is forgotten, and ACMO waits for its name. */
     override fun hush() {
         Log.i(TAG, "hush")
@@ -491,9 +706,9 @@ class Brain(
         o?.cancel()
         call?.cancel()
         call = null
+        dropReply()
         speaker.stop()
         faces = emptyList()
-        faceIndex = 0
         face.setSpeaking(false)
         if (wasConversing) {
             // Dropping the socket is what keeps the model's late audio out of the player. The
@@ -527,8 +742,8 @@ class Brain(
             out = null
             it.cancel()
         }
+        dropReply()
         faces = emptyList()
-        faceIndex = 0
         lastFailure = null
         state = State.SPEAKING
         // The operator's face until the first face tag -- or that tag's face, if only tags come before it:
@@ -607,6 +822,7 @@ class Brain(
         listenJob?.cancel()
         replyJob?.cancel()
         mic?.setMode(MicPipeline.Mode.PAUSED)
+        dropReply()
         val o = out
         out = null
         o?.cancel()
@@ -632,7 +848,6 @@ class Brain(
         replyJob?.cancel()
         state = State.IDLE
         faces = emptyList()
-        faceIndex = 0
         playing = null
         face.setSpeaking(false)
         setFace(Expression.IDLE)

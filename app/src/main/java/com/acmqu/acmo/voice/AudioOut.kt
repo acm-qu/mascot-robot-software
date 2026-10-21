@@ -3,7 +3,6 @@ package com.acmqu.acmo.voice
 import android.media.AudioAttributes
 import android.media.AudioFormat
 import android.media.AudioTrack
-import android.media.PlaybackParams
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
@@ -190,11 +189,6 @@ class AudioOut(
             .setTransferMode(AudioTrack.MODE_STREAM)
             .build()
         if (t.state == AudioTrack.STATE_INITIALIZED) {
-            // Shift the pitch (PITCH > 1 raises it). speed stays 1.0, so a second of audio still plays in a second --
-            // that is what keeps playbackHeadPosition, and every face cue keyed to it, in step. Change
-            // speed here and those offsets would need scaling. A device that rejects it just plays flat.
-            runCatching { t.playbackParams = PlaybackParams().setPitch(PITCH).setSpeed(1.0f) }
-                .onFailure { Log.w(TAG, "pitch shift unavailable; playing at normal pitch", it) }
             t
         } else {
             Log.e(TAG, "AudioTrack failed to initialise")
@@ -210,12 +204,10 @@ class AudioOut(
         private const val TAG = "AudioOut"
         const val SAMPLE_RATE = 24000
         const val BYTES_PER_FRAME = 2L
-        /** ACMO's voice, tuned here. PITCH < 1 lowers it (tempo unchanged); the ring modulator adds
-         * the robotic buzz -- ROBOT_CARRIER_HZ is its pitch, ROBOT_MIX how strong (0 dry, 1 full).
-         * PITCH > 1 raises the voice, < 1 lowers it. */
-        const val PITCH = 1.25f
+        /** ACMO's voice, tuned here: played at its own pitch, with a faint ring-modulator buzz on top --
+         * ROBOT_CARRIER_HZ is the buzz's pitch, ROBOT_MIX how strong (0 dry, 1 full robot). */
         const val ROBOT_CARRIER_HZ = 55.0
-        const val ROBOT_MIX = 0.35
+        const val ROBOT_MIX = 0.2
         const val BYTES_PER_MS = SAMPLE_RATE * BYTES_PER_FRAME / 1000
         /** A second of buffer: once it is full the thread waits for the head, 20 ms at a time. */
         private const val BUFFER_BYTES = SAMPLE_RATE * 2

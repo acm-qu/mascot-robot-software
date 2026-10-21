@@ -35,7 +35,8 @@ import kotlinx.coroutines.launch
 
 /**
  * The one screen. It shows the face, full-screen and always on, and wires it
- * to the [Brain]. Five taps in the top-left corner open the settings card.
+ * to the [Brain]. A tap on the face stops whatever ACMO is saying; five taps in the
+ * top-left corner open the settings card.
  */
 class MainActivity : AppCompatActivity() {
 
@@ -249,6 +250,7 @@ class MainActivity : AppCompatActivity() {
 
     /** Coordinates are fractions of the face. The top-left 20 % is the secret corner. */
     private fun onFaceTap(fx: Float, fy: Float) {
+        brain.stopTalking()   // any tap ends what ACMO is saying
         if (fx < CORNER && fy < CORNER) {
             val now = System.currentTimeMillis()
             cornerTaps.addLast(now)

@@ -89,4 +89,27 @@ class LiveMessageTest {
         assertFalse(Sentence.endsIn(" Because light"))
         assertFalse(Sentence.endsIn(""))
     }
+
+    @Test
+    fun `the pause before each sentence after the first, in code points`() {
+        assertEquals(listOf(4, 17), Sentence.pauses("Hey! How are you? Good."))
+        assertEquals(listOf(7), Sentence.pauses("Wait...  what"))   // a run of enders and spaces is one pause
+        assertEquals(emptyList<Int>(), Sentence.pauses("Pi is 3.14 today."))   // no space after the dot
+        assertEquals(emptyList<Int>(), Sentence.pauses("Done!  "))   // nothing follows
+        assertEquals(emptyList<Int>(), Sentence.pauses(""))
+        assertEquals(listOf(4), Sentence.pauses("ليش؟ لأن"))
+        assertEquals(listOf(2), Sentence.pauses("🤖! Hi"))   // the robot emoji is one code point
+    }
+
+    @Test
+    fun `how much of a transcript so far is whole sentences`() {
+        assertEquals(4, Sentence.whole("Hey! How are"))
+        assertEquals(17, Sentence.whole("Hey! How are you?"))   // an ender at the very end counts
+        assertEquals(17, Sentence.whole("Hey! How are you? "))
+        assertEquals(7, Sentence.whole("Wait...  what"))
+        assertEquals(0, Sentence.whole("Pi is 3.14 tod"))   // no space after the dot
+        assertEquals(0, Sentence.whole(" Because light"))
+        assertEquals(0, Sentence.whole(""))
+        assertEquals(4, Sentence.whole("ليش؟ لأن"))
+    }
 }
