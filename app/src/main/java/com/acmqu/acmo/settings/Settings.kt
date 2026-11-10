@@ -35,6 +35,14 @@ class Settings(context: Context) {
         get() = prefs.getBoolean("remote", true)
         set(v) = prefs.edit().putBoolean("remote", v).apply()
 
+    /**
+     * ElevenLabs answered 429 the last time it was called: the conversation speaks in Gemini's voice
+     * until it answers otherwise or the operator taps Connect. Mirrors [com.acmqu.acmo.voice.ElevenLabs.limited].
+     */
+    var elevenLimited: Boolean
+        get() = prefs.getBoolean("eleven_limited", false)
+        set(v) = prefs.edit().putBoolean("eleven_limited", v).apply()
+
     /** Index into [SWATCHES]. */
     var swatch: Int
         get() = prefs.getInt("swatch", 0).coerceIn(0, SWATCHES.size - 1)

@@ -15,6 +15,12 @@
     <string name="settings_on">On</string>
     <string name="settings_close">Close</string>
     <string name="settings_remote">Remote console</string>
+    <string name="settings_eleven">ElevenLabs</string>
+    <string name="settings_connect">Connect</string>
+    <string name="eleven_active">active: Claude writes, ElevenLabs speaks</string>
+    <string name="eleven_limited">disabled: the last call got 429. Gemini speaks</string>
+    <string name="eleven_no_key">no key in local.properties</string>
+    <string name="eleven_no_claude">active, but no Claude key: Gemini writes</string>
     <!-- The line under the Remote pills: the address to type into the console, or why there is none. -->
     <string name="remote_off">off</string>
     <string name="remote_no_wifi">no Wi-Fi address — on the Mac: adb forward tcp:%1$d tcp:%1$d</string>

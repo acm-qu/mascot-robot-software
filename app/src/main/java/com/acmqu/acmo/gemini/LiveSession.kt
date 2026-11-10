@@ -41,6 +41,9 @@ class LiveSession(
         /** The model planned the faces for the answer it is about to speak. */
         fun onFaces(feelings: List<Expression>)
 
+        /** An ears-only session heard the person out: [words] is what they said. Its tool call is left unanswered. */
+        fun onHeard(words: String)
+
         /** A chunk of the model's speech. [bytesBefore] is how much of this reply came before it. Socket
          * thread. The listener may modify [pcm] in place. */
         fun onAudio(pcm: ByteArray, bytesBefore: Long)
@@ -162,6 +165,12 @@ class LiveSession(
         if (m.functionCalls.isNotEmpty()) {
             val responses = JSONArray()
             for (call in m.functionCalls) {
+                if (call.name == Personality.HEARD_TOOL) {
+                    // Never answered: the model waits for the answer, so it never goes on to speak.
+                    val words = call.args.optString("words")
+                    main.post { listener.onHeard(words) }
+                    continue
+                }
                 if (call.name == Personality.FACES_TOOL) {
                     val faces = Faces.parse(call.args)
                     main.post { listener.onFaces(faces) }
@@ -172,7 +181,9 @@ class LiveSession(
                     JSONObject().put("id", call.id).put("name", call.name).put("response", JSONObject().put("result", "ok")),
                 )
             }
-            socket?.send(JSONObject().put("toolResponse", JSONObject().put("functionResponses", responses)).toString())
+            if (responses.length() > 0) {
+                socket?.send(JSONObject().put("toolResponse", JSONObject().put("functionResponses", responses)).toString())
+            }
         }
 
         if (m.interrupted) main.post { listener.onInterrupted() }

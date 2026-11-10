@@ -56,6 +56,25 @@ class ElevenLabs(
         fun fail(message: String)
     }
 
+    /**
+     * Whether the last answer from ElevenLabs was a 429 (out of credits, or too many requests at once).
+     * The conversation then speaks in Gemini's own voice instead; any other answer, or [reconnect], clears it.
+     */
+    @Volatile var limited = false
+
+    /** Hears every change of [limited] made here, on OkHttp's thread or the caller's: the settings card shows it. */
+    var onLimited: ((Boolean) -> Unit)? = null
+
+    /** The operator renewed the plan: ElevenLabs is tried again. */
+    fun reconnect() = markLimited(false)
+
+    private fun markLimited(value: Boolean) {
+        if (limited == value) return
+        limited = value
+        Log.i(TAG, if (value) "429: ElevenLabs is disabled until it answers again or is reconnected" else "ElevenLabs is active")
+        onLimited?.invoke(value)
+    }
+
     private val url = "$baseUrl/v1/text-to-speech/$voiceId/stream/with-timestamps?output_format=$OUTPUT_FORMAT"
 
     /**
@@ -84,6 +103,7 @@ class ElevenLabs(
 
             override fun onResponse(call: Call, response: Response) {
                 response.use { r ->
+                    markLimited(r.code == 429)
                     if (!r.isSuccessful) {
                         // Bounded and exception-safe: a torn or slow error body must still end in fail(),
                         // because an exception escaping this callback is swallowed by OkHttp, not reported.

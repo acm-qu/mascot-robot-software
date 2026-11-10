@@ -33,6 +33,12 @@ class SettingsPanel(
     /** What the line under the Remote pills says -- the address, or why there is none. The activity knows. */
     var remoteStatus: () -> String = { "" }
 
+    /** What the line beside the ElevenLabs Connect button says. The activity knows. */
+    var elevenStatus: () -> String = { "" }
+
+    /** The Connect button: the operator renewed ElevenLabs, so try it again. */
+    var onReconnect: () -> Unit = {}
+
     init {
         b.btnLight.setOnClickListener { settings.dark = false; changed() }
         b.btnDark.setOnClickListener { settings.dark = true; changed() }
@@ -42,6 +48,7 @@ class SettingsPanel(
         b.btnDevOn.setOnClickListener { settings.devMode = true; changed() }
         b.btnRemoteOff.setOnClickListener { settings.remote = false; changed() }
         b.btnRemoteOn.setOnClickListener { settings.remote = true; changed() }
+        b.btnElevenConnect.setOnClickListener { onReconnect(); refresh() }
 
         b.sliderVolume.addOnChangeListener { _, value, fromUser ->
             if (fromUser) setVolume(value / 100f)
@@ -83,13 +90,15 @@ class SettingsPanel(
         b.settingsShadow.setBackgroundColor(theme.accent)
 
         for (label in listOf(
-            b.titleText, b.labelTheme, b.labelConversation, b.labelDev, b.labelRemote, b.labelVolume, b.labelBrightness, b.labelColour,
+            b.titleText, b.labelTheme, b.labelConversation, b.labelDev, b.labelRemote, b.labelEleven, b.labelVolume, b.labelBrightness, b.labelColour,
         )) {
             label.setTextColor(muted)
         }
         b.hintText.setTextColor(muted)
         b.remoteAddress.setTextColor(theme.ink)
         b.remoteAddress.text = remoteStatus()
+        b.elevenStatus.setTextColor(theme.ink)
+        b.elevenStatus.text = elevenStatus()
 
         stylePill(b.btnLight, selected = !settings.dark, theme)
         stylePill(b.btnDark, selected = settings.dark, theme)
@@ -99,6 +108,7 @@ class SettingsPanel(
         stylePill(b.btnDevOn, selected = settings.devMode, theme)
         stylePill(b.btnRemoteOff, selected = !settings.remote, theme)
         stylePill(b.btnRemoteOn, selected = settings.remote, theme)
+        stylePill(b.btnElevenConnect, selected = settings.elevenLimited, theme)   // filled: it wants pressing
         stylePill(b.btnClose, selected = false, theme)
 
         b.sliderVolume.value = (currentVolume() * 100f).roundToInt().toFloat().coerceIn(0f, 100f)

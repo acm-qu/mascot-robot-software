@@ -22,12 +22,12 @@ class PersonalityTest {
     }
 
     @Test
-    fun `audio out, no thinking, both transcriptions`() {
+    fun `audio out, no thinking config, both transcriptions`() {
         val s = setup(null)
         assertEquals(Personality.MODEL, s.getString("model"))
         val gen = s.getJSONObject("generationConfig")
         assertEquals("AUDIO", gen.getJSONArray("responseModalities").getString(0))
-        assertEquals(0, gen.getJSONObject("thinkingConfig").getInt("thinkingBudget"))
+        assertFalse(gen.has("thinkingConfig"))   // the Live model rejects any
         assertEquals(
             Personality.VOICE,
             gen.getJSONObject("speechConfig").getJSONObject("voiceConfig").getJSONObject("prebuiltVoiceConfig").getString("voiceName"),
@@ -50,5 +50,23 @@ class PersonalityTest {
     fun `the system prompt names the tool and every feeling`() {
         assertTrue(Personality.SYSTEM.contains(Personality.FACES_TOOL))
         for (e in Expression.entries) assertTrue(e.label, Personality.SYSTEM.contains(e.label))
+    }
+
+    @Test
+    fun `an ears session only listens - the heard tool, no voice, no resumption`() {
+        val s = Personality.setup("abc", ears = true).getJSONObject("setup")
+        val tool = s.getJSONArray("tools").getJSONObject(0).getJSONArray("functionDeclarations").getJSONObject(0)
+        assertEquals(Personality.HEARD_TOOL, tool.getString("name"))
+        assertEquals(Personality.EARS_SYSTEM, s.getJSONObject("systemInstruction").getJSONArray("parts").getJSONObject(0).getString("text"))
+        assertFalse(s.getJSONObject("generationConfig").has("speechConfig"))
+        assertFalse(s.has("outputAudioTranscription"))
+        assertFalse(s.has("sessionResumption"))
+        assertTrue(s.has("inputAudioTranscription"))
+    }
+
+    @Test
+    fun `Claude's prompt names every feeling and no tool`() {
+        for (e in Expression.entries) assertTrue(e.label, Personality.REPLY_SYSTEM.contains(e.label))
+        assertFalse(Personality.REPLY_SYSTEM.contains(Personality.FACES_TOOL))
     }
 }

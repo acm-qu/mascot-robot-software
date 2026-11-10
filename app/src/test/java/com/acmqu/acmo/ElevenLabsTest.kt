@@ -251,6 +251,25 @@ class ElevenLabsTest {
     }
 
     @Test
+    fun `a 429 disables it, any other answer or a reconnect enables it again`() {
+        val el = client()
+        val heard = mutableListOf<Boolean>()
+        el.onLimited = { synchronized(heard) { heard += it } }
+        server.enqueue(MockResponse().setResponseCode(429).setBody("""{"detail":{"status":"quota_exceeded","message":"out"}}"""))
+        server.enqueue(MockResponse().setResponseCode(500))
+        server.enqueue(MockResponse().setResponseCode(429))
+        for (expected in listOf(true, false, true)) {
+            val sink = RecordingSink()
+            el.stream("Hello", sink)
+            assertTrue(sink.done.await(5, TimeUnit.SECONDS))
+            assertEquals(expected, el.limited)
+        }
+        el.reconnect()
+        assertFalse(el.limited)
+        assertEquals(listOf(true, false, true, false), synchronized(heard) { heard.toList() })
+    }
+
+    @Test
     fun `a cancelled call reports nothing`() {
         // 200 KB at 40 KB/s: five seconds of body, cancelled after a fraction of it.
         server.enqueue(

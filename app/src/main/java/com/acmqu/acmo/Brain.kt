@@ -4,6 +4,7 @@ import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import android.util.Log
+import com.acmqu.acmo.claude.Claude
 import com.acmqu.acmo.face.Expression
 import com.acmqu.acmo.face.FaceView
 import com.acmqu.acmo.gemini.LiveSession
@@ -23,9 +24,12 @@ import com.acmqu.acmo.voice.AudioOut
 import com.acmqu.acmo.voice.ElevenLabs
 import com.acmqu.acmo.voice.MicPipeline
 import com.acmqu.acmo.voice.Speaker
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import okhttp3.Call
@@ -43,6 +47,10 @@ import org.vosk.Model
  * as the transcript finishes each one ([Reply]); Gemini's own voice is held back
  * and played only if ElevenLabs fails. The face is idle while waiting, excited from the wake word
  * until the answer begins, then walks the planned faces as the sentences are heard.
+ *
+ * While ElevenLabs is active (it has not just answered 429) and there is a Claude key, Gemini only
+ * listens: an ears-only session ([Personality.EARS_SYSTEM]) hands back what was said and never
+ * speaks, Claude writes the answer and its faces, and ElevenLabs says it -- no Gemini audio is made.
  *
  * One session is kept open across exchanges so that follow-ups remember the
  * conversation; it is dropped after [MEMORY_MS] of quiet. Errors are a sad
@@ -63,6 +71,8 @@ class Brain(
     private val eleven: ElevenLabs?,
     /** The wheel-control board over USB: every face set here is also written to it. */
     private val robot: RobotLink,
+    /** Writes the replies ElevenLabs speaks; null when no Claude key was built in. */
+    private val claude: Claude?,
 ) : MicPipeline.Listener, RemoteServer.Host {
 
     enum class State { BOOTING, IDLE, LISTENING, THINKING, SPEAKING }
@@ -76,8 +86,12 @@ class Brain(
     /** Fires on the main thread whenever [state] changes; the dev bar's mic button watches it. */
     var onStateChanged: ((State) -> Unit)? = null
 
+    /** Main thread: why the last exchange failed (the apology is being spoken), or null as the next one starts. Dev mode shows it. */
+    var onError: ((String?) -> Unit)? = null
+
     @Volatile private var mic: MicPipeline? = null
     @Volatile private var session: LiveSession? = null
+    private var sessionEars = false   // whether [session] only listens, for Claude
     private var sessionExpiring = false
     private var resumptionHandle: String? = null
     private var lastExchangeAt = 0L
@@ -94,6 +108,9 @@ class Brain(
 
     // The reply of the exchange in progress, spoken sentence by sentence in the ElevenLabs voice.
     @Volatile private var reply: Reply? = null   // read on the socket thread too
+
+    // The conversation so far, for Claude: what the person said and ACMO answered, alternately.
+    private val turns = ArrayList<String>()
 
     // Lines from the console: the one playing, and the ones waiting their turn.
     private val queue = ArrayDeque<Entry>()
@@ -204,10 +221,10 @@ class Brain(
         listenJob?.cancel()
         mic?.setMode(MicPipeline.Mode.PAUSED)
         state = State.THINKING
-        newReply()
+        val r = newReply()
         setFace(Expression.EXCITED)
         Log.i(TAG, "typed: \"$prompt\"")
-        openSession().sendText(prompt)
+        if (r.viaClaude) ask(prompt) else openSession(ears = false).sendText(prompt)
         armReplyTimeout()
     }
 
@@ -243,9 +260,10 @@ class Brain(
 
     private fun listen() {
         state = State.LISTENING
-        newReply()
+        heard.clear()   // whatever an exchange that came to nothing left behind
+        val r = newReply()
         setFace(Expression.EXCITED)
-        val s = openSession()
+        val s = openSession(ears = r.viaClaude)
         mic?.sink = s::sendAudio
         mic?.setMode(MicPipeline.Mode.STREAM)
         listenJob?.cancel()
@@ -269,16 +287,22 @@ class Brain(
 
     // ---- the session ----
 
-    private fun openSession(): LiveSession {
-        session?.let { if (!sessionExpiring) return it }
+    /** The session for this exchange: one that speaks for itself, or, for Claude, one that only listens ([ears]). */
+    private fun openSession(ears: Boolean): LiveSession {
+        session?.let { if (!sessionExpiring && sessionEars == ears) return it }
         closeSession()
-        val handle = resumptionHandle?.takeIf { SystemClock.elapsedRealtime() - lastExchangeAt < MEMORY_MS }
-        val listener = SessionListener()
-        val s = LiveSession(apiKey, Personality.setup(handle), listener)
+        val handle = if (ears) null else resumptionHandle?.takeIf { SystemClock.elapsedRealtime() - lastExchangeAt < MEMORY_MS }
+        val listener = SessionListener(ears)
+        val s = LiveSession(apiKey, Personality.setup(handle, ears), listener)
         listener.self = s
         session = s
+        sessionEars = ears
         sessionExpiring = false
-        Log.i(TAG, if (handle != null) "opening a session, continuing the conversation" else "opening a session")
+        Log.i(TAG, when {
+            ears -> "opening a listening session"
+            handle != null -> "opening a session, continuing the conversation"
+            else -> "opening a session"
+        })
         s.connect()
         return s
     }
@@ -310,12 +334,31 @@ class Brain(
     }
 
     /** Callbacks from one session. A session that is no longer [Brain.session] is ignored. */
-    private inner class SessionListener : LiveSession.Listener {
+    private inner class SessionListener(private val ears: Boolean) : LiveSession.Listener {
         lateinit var self: LiveSession
         private fun current() = self === session
 
         override fun onReady() {
             if (current()) Log.i(TAG, "session ready")
+        }
+
+        override fun onHeard(words: String) {
+            if (!current() || state != State.LISTENING) return
+            // The words in the tool call come whole, at the end of the turn; the running transcript is the spare.
+            val said = words.trim().ifEmpty { heard.trim().toString() }
+            Log.i(TAG, "heard: \"$said\" (transcript: \"${heard.trim()}\")")
+            heard.clear()
+            listenJob?.cancel()
+            mic?.sink = null
+            mic?.setMode(MicPipeline.Mode.PAUSED)
+            closeSession()   // its tool call stays unanswered; the next exchange gets a new one
+            if (said.isEmpty()) {
+                shrug()
+                return
+            }
+            state = State.THINKING
+            armReplyTimeout()
+            ask(said)
         }
 
         override fun onFaces(feelings: List<Expression>) {
@@ -329,6 +372,11 @@ class Brain(
         override fun onAudio(pcm: ByteArray, bytesBefore: Long) {
             // Socket thread. Anything arriving while idle is a reply to something ACMO gave up on.
             if (!current()) return
+            if (ears) {
+                // It spoke instead of calling the tool. Its voice is not wanted; what was heard so far is.
+                main.post { if (current()) onHeard("") }
+                return
+            }
             if (playing != null) return   // a console line has the player; nothing the session sends now is for it
             val st = state
             if (st != State.LISTENING && st != State.THINKING && st != State.SPEAKING) return
@@ -382,20 +430,65 @@ class Brain(
             if (self.resumed && !self.ready && state == State.LISTENING) {
                 // A stale handle, most likely. Once more, from scratch.
                 resumptionHandle = null
-                val s = openSession()
+                val s = openSession(ears = false)
                 mic?.sink = s::sendAudio
                 return
             }
-            if (conversing) fail("session lost")   // a console line playing over an idle session is not a lost reply
+            if (conversing) fail("Gemini session lost: $failure")   // a console line playing over an idle session is not a lost reply
         }
     }
 
     // ---- the voice ----
 
     /** A new exchange: whatever was left of the last reply is forgotten. */
-    private fun newReply() {
+    private fun newReply(): Reply {
         dropReply()
-        reply = Reply()
+        onError?.invoke(null)
+        // Claude writes it when ElevenLabs can say it; otherwise Gemini answers in its own voice.
+        val viaClaude = claude != null && eleven != null && !eleven.limited
+        return Reply(viaClaude).also { reply = it }
+    }
+
+    /**
+     * Claude's answer to [said], streamed into the reply of this exchange: the faces first, then the text,
+     * each whole sentence off to ElevenLabs as soon as it is written. Everything Claude hands over is posted
+     * to the main thread in order, and dropped there if this exchange is over by then.
+     */
+    private fun ask(said: String) {
+        val r = reply ?: return
+        val c = claude ?: return
+        val asked = turns + said
+        r.asking = scope.launch(Dispatchers.IO) {
+            try {
+                val answer = c.answer(
+                    asked,
+                    onFeelings = { f -> main.post { if (reply === r) planFaces(f) } },
+                    onText = { words ->
+                        ensureActive()   // a dropped reply stops reading, which closes the stream
+                        main.post { if (reply === r) r.words(words) }
+                    },
+                )
+                main.post {
+                    if (reply !== r) return@post
+                    turns += said
+                    turns += answer.text
+                    if (faces.isEmpty()) planFaces(answer.feelings)   // the text came before the feelings
+                    Log.i(TAG, "said: \"${answer.text}\"")
+                    r.turnDone()
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.w(TAG, "Claude failed", e)
+                main.post { if (reply === r) fail("Claude: ${e.message ?: e.javaClass.simpleName}") }
+            }
+        }
+    }
+
+    private fun planFaces(feelings: List<Expression>) {
+        faces = feelings
+        setFace(feelings.first())
+        Log.i(TAG, "faces: ${feelings.joinToString(" ") { it.label }}")
     }
 
     /** Forgets the reply in progress, and stops ElevenLabs saying it. The players are the caller's to stop. */
@@ -414,11 +507,17 @@ class Brain(
      * Main thread, apart from [audio]. ElevenLabs downloads one piece at a time, but much faster than
      * it plays, so the next piece is usually in the player before the one ahead of it is heard out.
      */
-    private inner class Reply {
+    private inner class Reply(
+        /** Claude writes the words and nothing comes from Gemini but what it heard; there is no voice to fall back on. */
+        val viaClaude: Boolean,
+    ) {
+        /** Claude at work on the answer. */
+        var asking: Job? = null
+
         // Gemini's voice: what has come and not been played, and its player once fallen back. Guarded by held.
         private val held = ArrayList<ByteArray>()
         private var gemini: AudioOut? = null
-        private var fallen = eleven == null   // written on the main thread only
+        private var fallen = !viaClaude && (eleven == null || eleven.limited)   // written on the main thread only
         private val geminiCues = ArrayList<Pair<Long, Expression>>()   // where Gemini's voice changes face
         private var geminiFace = 0
 
@@ -467,6 +566,13 @@ class Brain(
             if (!fallen) send(Sentence.whole(text.substring(sent)))
         }
 
+        /** A few more words of Claude's answer: each sentence goes to ElevenLabs once it is whole. */
+        fun words(words: String) {
+            if (dropped) return
+            text.append(words)
+            send(Sentence.whole(text.substring(sent)))
+        }
+
         /** Gemini's turn is over: the rest of the transcript goes out, whole sentences or not. */
         fun turnDone() {
             if (dropped) return
@@ -484,6 +590,7 @@ class Brain(
 
         fun drop() {
             dropped = true
+            asking?.cancel()
             call?.cancel()
             call = null
             pending.clear()
@@ -555,6 +662,10 @@ class Brain(
         /** ElevenLabs could not say it: Gemini's voice takes over, from the start. */
         private fun fallBack(why: String) {
             if (fallen || dropped) return
+            if (viaClaude) {
+                fail(why)
+                return
+            }
             Log.w(TAG, "$why; the reply falls back to Gemini's voice")
             call?.cancel()
             call = null
@@ -819,6 +930,7 @@ class Brain(
 
     private fun fail(why: String) {
         Log.e(TAG, "conversation failed: $why")
+        onError?.invoke(why)
         listenJob?.cancel()
         replyJob?.cancel()
         mic?.setMode(MicPipeline.Mode.PAUSED)
@@ -860,6 +972,7 @@ class Brain(
             if (state == State.IDLE) {
                 closeSession()
                 resumptionHandle = null
+                turns.clear()
                 Log.i(TAG, "forgot the conversation")
             }
         }

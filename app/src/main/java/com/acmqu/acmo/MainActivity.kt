@@ -22,6 +22,7 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.core.view.updatePadding
 import androidx.lifecycle.lifecycleScope
+import com.acmqu.acmo.claude.Claude
 import com.acmqu.acmo.databinding.ActivityMainBinding
 import com.acmqu.acmo.face.Expression
 import com.acmqu.acmo.remote.RemoteServer
@@ -68,7 +69,8 @@ class MainActivity : AppCompatActivity() {
         val eleven = if (BuildConfig.ELEVENLABS_API_KEY.isBlank()) null else ElevenLabs(
             apiKey = BuildConfig.ELEVENLABS_API_KEY,
             voiceId = BuildConfig.ELEVENLABS_VOICE_ID.ifBlank { ElevenLabs.DEFAULT_VOICE_ID },
-        )
+        ).apply { limited = settings.elevenLimited }
+        val claude = BuildConfig.CLAUDE_API_KEY.ifBlank { null }?.let(::Claude)
         // ACMO's face drives the robot's body language: every expression the Brain
         // sets is also written to the wheel-control board over the USB cable.
         robot = RobotLink(applicationContext)
@@ -81,11 +83,29 @@ class MainActivity : AppCompatActivity() {
             apology = getString(R.string.speech_apology),
             eleven = eleven,
             robot = robot,
+            claude = claude,
         )
 
         remote = RemoteServer(RemoteServer.PORT, brain, onMain = { block -> runOnUiThread { block() } }, hasKey = eleven != null)
         panel = SettingsPanel(binding.settings, this, settings) { applySettings() }
         panel.remoteStatus = ::remoteStatus
+        panel.elevenStatus = {
+            getString(
+                when {
+                    eleven == null -> R.string.eleven_no_key
+                    settings.elevenLimited -> R.string.eleven_limited
+                    claude == null -> R.string.eleven_no_claude
+                    else -> R.string.eleven_active
+                },
+            )
+        }
+        panel.onReconnect = { eleven?.reconnect() }
+        eleven?.onLimited = { limited ->
+            runOnUiThread {
+                settings.elevenLimited = limited
+                panel.refresh()
+            }
+        }
         applySettings()
         if (eleven == null) {
             Log.w(TAG, "ELEVENLABS_API_KEY is empty -- the remote console gets 503; add it to local.properties and rebuild")
@@ -187,6 +207,11 @@ class MainActivity : AppCompatActivity() {
         }
         binding.devMic.setOnClickListener { brain.toggleListening() }
         brain.onStateChanged = { styleMic(it) }
+        // The apology says only that something broke; in dev mode the screen says what.
+        brain.onError = { why ->
+            binding.devError.text = why
+            binding.devError.visibility = if (why == null) View.GONE else View.VISIBLE
+        }
 
         // The bar sits on the bottom edge; lift it over the keyboard and the nav bar when they show.
         ViewCompat.setOnApplyWindowInsetsListener(binding.devBar) { v, insets ->

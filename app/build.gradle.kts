@@ -20,6 +20,7 @@ fun secret(name: String): String = localProps.getProperty(name) ?: System.getenv
 val geminiApiKey = secret("GEMINI_API_KEY")
 val elevenLabsApiKey = secret("ELEVENLABS_API_KEY")
 val elevenLabsVoiceId = secret("ELEVENLABS_VOICE_ID")
+val claudeApiKey = secret("CLAUDE_API_KEY")
 
 android {
     namespace = "com.acmqu.acmo"
@@ -38,6 +39,8 @@ android {
         // The remote console's voice. A blank voice means ElevenLabs.DEFAULT_VOICE_ID.
         buildConfigField("String", "ELEVENLABS_API_KEY", "\"$elevenLabsApiKey\"")
         buildConfigField("String", "ELEVENLABS_VOICE_ID", "\"$elevenLabsVoiceId\"")
+        // Writes the replies the ElevenLabs voice speaks. Blank: Gemini answers in its own voice, as before.
+        buildConfigField("String", "CLAUDE_API_KEY", "\"$claudeApiKey\"")
     }
 
     buildTypes {
@@ -55,6 +58,11 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
+    }
+
+    packaging {
+        // The Anthropic SDK brings Apache httpclient5, whose jars each carry this notice.
+        resources.excludes += "META-INF/DEPENDENCIES"
     }
 
     testOptions {
@@ -120,6 +128,8 @@ dependencies {
     implementation(libs.google.material)
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.okhttp)
+    // Claude writes the replies when ElevenLabs speaks them.
+    implementation(libs.anthropic)
     // The remote console's server on the tablet.
     implementation(libs.nanohttpd)
     implementation(libs.vosk.android)

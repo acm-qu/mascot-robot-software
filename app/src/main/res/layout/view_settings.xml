@@ -141,6 +141,35 @@
                     android:textSize="12sp" />
 
                 <TextView
+                    android:id="@+id/labelEleven"
+                    style="@style/Eyebrow"
+                    android:layout_marginTop="22dp"
+                    android:text="@string/settings_eleven" />
+
+                <!-- Active, or disabled after a 429; Connect makes it active again. -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnElevenConnect"
+                        style="@style/Pill"
+                        android:text="@string/settings_connect" />
+
+                    <TextView
+                        android:id="@+id/elevenStatus"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="12dp"
+                        android:layout_weight="1"
+                        android:fontFamily="@font/jetbrains_mono_bold"
+                        android:textSize="12sp" />
+                </LinearLayout>
+
+                <TextView
                     android:id="@+id/labelVolume"
                     style="@style/Eyebrow"
                     android:layout_marginTop="22dp"
