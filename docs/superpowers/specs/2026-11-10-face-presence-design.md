@@ -298,6 +298,14 @@ values in §7.
 
 Filled in while building: the CameraX version used, the APK size change, the tuned thresholds.
 
+- **Step 0 (2026-11-10).** CameraX **1.6.1** and face-detection **16.1.7** build
+  with AGP 8.13.2 / compile SDK 36: `checkDebugAarMetadata` passes, and no
+  pinned library moves (`androidx.core` 1.17.0, `lifecycle` 2.9.4, `activity`
+  1.11.0, `annotation` 1.9.1, `kotlin-stdlib` 2.2.21 resolve exactly as before).
+  The face detector's native library ships both ABIs we keep:
+  `libface_detector_v2_jni.so` is 8.1 MB for `arm64-v8a` and 5.1 MB for
+  `armeabi-v7a`, about 13 MB in all. The debug APK is 86 MB with it.
+
 ## 8. Later, once greeting works
 
 - **Gemini-written greetings**: a bracketed note (`[2 people just walked up,

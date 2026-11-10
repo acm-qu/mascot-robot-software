@@ -16,6 +16,12 @@ jna = "5.18.1"
 junit = "4.13.2"
 json = "20250107"
 jserialcomm = "2.11.4"
+# The camera, for noticing faces (vision/). Checked against the pins above:
+# see docs/superpowers/specs/2026-11-10-face-presence-design.md, section 7.
+camerax = "1.6.1"
+# The bundled face detector: the model ships in the APK, so it works offline and
+# without Google Play Services, unlike play-services-mlkit-face-detection.
+mlkitFace = "16.1.7"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -31,6 +37,10 @@ vosk-android = { group = "com.alphacephei", name = "vosk-android", version.ref =
 junit = { group = "junit", name = "junit", version.ref = "junit" }
 json = { group = "org.json", name = "json", version.ref = "json" }
 jserialcomm = { group = "com.fazecast", name = "jSerialComm", version.ref = "jserialcomm" }
+androidx-camera-core = { group = "androidx.camera", name = "camera-core", version.ref = "camerax" }
+androidx-camera-camera2 = { group = "androidx.camera", name = "camera-camera2", version.ref = "camerax" }
+androidx-camera-lifecycle = { group = "androidx.camera", name = "camera-lifecycle", version.ref = "camerax" }
+mlkit-face-detection = { group = "com.google.mlkit", name = "face-detection", version.ref = "mlkitFace" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

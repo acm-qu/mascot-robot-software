@@ -127,6 +127,12 @@ dependencies {
     // Arduino
     implementation(libs.jserialcomm)
 
+    // The front camera and the on-device face detector, for greeting people who walk up.
+    implementation(libs.androidx.camera.core)
+    implementation(libs.androidx.camera.camera2)
+    implementation(libs.androidx.camera.lifecycle)
+    implementation(libs.mlkit.face.detection)
+
     // Vosk reaches its native library through JNA; its POM asks for the AAR flavour.
     implementation("net.java.dev.jna:jna:${libs.versions.jna.get()}@aar")
 
